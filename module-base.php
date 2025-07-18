@@ -182,21 +182,13 @@ abstract class F12_Quick_Sync_Module_Base {
                 $value = $payload[ $payload_key ];
 
                 if ( 'post_date' === $wp_post_field_key && ! empty( $value ) ) {
-                    // Parse incoming string, honouring any TZ in the string, then shift to site TZ.
-                    try {
-                        $dt_local = new DateTime( $value );               // honour whatever TZ is in the string
-                        $dt_local->setTimezone( wp_timezone() );          // ...then convert to site TZ (SAST)
-                    } catch ( Exception $e ) {
-                        $dt_local = new DateTime( 'now', wp_timezone() );  // fail-safe
-                    }
+                    // --- parse incoming string ---------------------------------------------
+                    $dt_local = new DateTime( $value );          // honours the “Z” (UTC)
+                    // 🚨 ALWAYS convert to site timezone – no conditions
+                    $dt_local->setTimezone( wp_timezone() );     // now site time
 
-                    // Local time for WP admin lists & UI
-                    $post_data['post_date'] = $dt_local->format( 'Y-m-d H:i:s' );
-
-                    // GMT time for cron, REST caches, etc.
-                    $dt_utc = clone $dt_local;
-                    $dt_utc->setTimezone( new DateTimeZone( 'UTC' ) );
-                    $post_data['post_date_gmt'] = $dt_utc->format( 'Y-m-d H:i:s' );
+                    $post_data['post_date']      = f12qs_mysql_local( $dt_local );
+                    $post_data['post_date_gmt']  = f12qs_mysql_gmt(   $dt_local );
                 } elseif ( 'post_status' === $wp_post_field_key ) {
                     if ( !empty($value) && is_string($value) && in_array( strtolower( $value ), $this->allowed_post_statuses, true ) ) {
                         $post_data[ $wp_post_field_key ] = strtolower( $value );
@@ -227,9 +219,9 @@ abstract class F12_Quick_Sync_Module_Base {
 
         // If neither post_date nor post_date_gmt set above, default to now.
         if ( empty( $post_data['post_date'] ) ) {
-            $now_local = new DateTime( 'now', wp_timezone() );
-            $post_data['post_date']      = $now_local->format( 'Y-m-d H:i:s' );
-            $post_data['post_date_gmt']  = gmdate( 'Y-m-d H:i:s' );
+            $now_local = f12qs_now();
+            $post_data['post_date']     = f12qs_mysql_local( $now_local );
+            $post_data['post_date_gmt'] = f12qs_mysql_gmt(   $now_local );
         }
 
         return $post_data;
