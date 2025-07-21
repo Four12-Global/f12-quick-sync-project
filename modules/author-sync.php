@@ -17,6 +17,14 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
+// Ensure Parsedown is available (modules/…/author-sync.php → up one → vendor/…)
+if ( ! class_exists( 'Parsedown' ) ) {
+    $pd_path = dirname( __DIR__ ) . '/vendor/parsedown/Parsedown.php';
+    if ( is_readable( $pd_path ) ) {
+        require_once $pd_path;
+    }
+}
+
 class F12_Author_Speaker_Sync_Module {
 
     // --- Configuration ---
@@ -97,17 +105,16 @@ class F12_Author_Speaker_Sync_Module {
         // --- 3. Prepare Core Term Data ---
         $name = sanitize_text_field($payload['name']);
         $slug = isset($payload['slug']) ? sanitize_title($payload['slug']) : sanitize_title($name);
-        $description = '';
-        
-        // Use Parsedown for the primary description field if it exists
+        // Prefer as_description, then description, then empty string
+        $raw_description = $payload['as_description'] ?? $payload['description'] ?? '';
         if (isset($payload['as_description']) && is_string($payload['as_description']) && class_exists('Parsedown')) {
             $description = wp_kses_post(Parsedown::instance()->setSafeMode(true)->text($payload['as_description']));
+        } else {
+            $description = is_string($raw_description) ? $raw_description : '';
         }
-        
+        // Build term_data WITHOUT 'description'
         $term_data = [
-            'name'        => $name,
-            'slug'        => $slug,
-            'description' => $description,
+            'slug' => $slug,
         ];
 
         // --- 4. Create or Update Term ---
@@ -117,6 +124,14 @@ class F12_Author_Speaker_Sync_Module {
         } else {
             $result = wp_insert_term($name, $this->taxonomy, $term_data);
             $term_id = is_wp_error($result) ? 0 : (int) $result['term_id'];
+        }
+
+        // --- Save the rich-text HTML into term-meta (as_description) ---
+        if ($term_id) {
+            $current = get_term_meta($term_id, 'as_description', true);
+            if ($current !== $description) {
+                update_term_meta($term_id, 'as_description', wp_kses_post($description));
+            }
         }
 
         if (is_wp_error($result) || $term_id === 0) {
