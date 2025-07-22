@@ -106,12 +106,22 @@ abstract class F12_Quick_Sync_Module_Base {
     
         if ( $wp_id > 0 ) {
             $potential_post = get_post( $wp_id );
-            if ( $potential_post && $potential_post->post_type === $this->cpt && get_post_meta( $potential_post->ID, $this->sku_meta_key, true ) === $sku ) {
-                $post = $potential_post;
-                $mode = 'update';
-                f12_sync_log( sprintf( 'Post found via fast-path wp_id: %d for CPT %s (SKU: %s)', $post->ID, $this->cpt, esc_html( $sku ) ) );
+            if ( $potential_post && $potential_post->post_type === $this->cpt ) {
+                $existing_sku = get_post_meta( $potential_post->ID, $this->sku_meta_key, true );
+                // This is the key change: Allow a match if the existing SKU is empty (so we can claim it) or if the SKUs match.
+                if ( empty($existing_sku) || $existing_sku === $sku ) {
+                    $post = $potential_post;
+                    $mode = 'update';
+                    if (empty($existing_sku)) {
+                        f12_sync_log( sprintf( 'Post found via wp_id %d and CLAIMED for SKU %s (was previously empty).', $post->ID, esc_html( $sku ) ) );
+                    } else {
+                        f12_sync_log( sprintf( 'Post found via fast-path wp_id: %d for CPT %s (SKU: %s)', $post->ID, $this->cpt, esc_html( $sku ) ) );
+                    }
+                } else {
+                     f12_sync_log( sprintf( 'wp_id %d provided, but its SKU ("%s") does not match payload SKU ("%s"). Falling back to SKU lookup.', $wp_id, esc_html($existing_sku), esc_html( $sku ) ) );
+                }
             } else {
-                f12_sync_log( sprintf( 'wp_id %d provided, but post not found, is wrong CPT, or SKU does not match. Falling back to SKU lookup. (Payload SKU: %s)', $wp_id, esc_html( $sku ) ) );
+                f12_sync_log( sprintf( 'wp_id %d provided, but post not found or is wrong CPT. Falling back to SKU lookup.', $wp_id ) );
             }
         }
     
@@ -373,6 +383,15 @@ abstract class F12_Quick_Sync_Module_Base {
     }
 
     /**
+     * Hook for child modules to perform special meta field processing.
+     * This method is called before the generic meta loop.
+     * Child classes should unset any keys they handle to prevent double processing.
+     */
+    protected function _process_special_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // Child modules can override this.
+    }
+
+    /**
      * Handles all remaining fields as post meta, including image sideloading.
      */
     protected function _process_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
@@ -381,6 +400,10 @@ abstract class F12_Quick_Sync_Module_Base {
             update_post_meta( $post_id, $this->sku_meta_key, $sku );
         }
         unset($payload[$this->sku_meta_key]);
+
+        // --- Call the hook for special handling ---
+        $this->_process_special_meta_fields( $post_id, $payload, $sku, $changed_summary );
+        // ---------------------------------------------
 
         foreach ( $payload as $meta_key => $meta_value ) {
             $meta_key_sanitized = sanitize_key( $meta_key );
