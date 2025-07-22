@@ -17,13 +17,6 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
-// Ensure Parsedown is available (modules/…/author-sync.php → up one → vendor/…)
-if ( ! class_exists( 'Parsedown' ) ) {
-    $pd_path = dirname( __DIR__ ) . '/vendor/parsedown/Parsedown.php';
-    if ( is_readable( $pd_path ) ) {
-        require_once $pd_path;
-    }
-}
 
 class F12_Author_Speaker_Sync_Module {
 
