@@ -7,10 +7,16 @@
     "type": "git",
     "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
   },
+
   "scripts": {
-    "build": "esbuild scripts-src/*.ts --bundle --format=iife --target=es6 --minify --outdir=scripts-dist"
+    "check": "tsc --noEmit",
+    "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
+    "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
   },
+
   "devDependencies": {
-    "esbuild": "^0.25.8"
+    "esbuild": "^0.25.8",
+    "typescript": "^5.8.3",
+    "@types/node": "^20.11.0"
   }
 }

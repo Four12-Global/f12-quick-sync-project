@@ -1,0 +1,4285 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+quick-sync-plugin/
+  modules/
+    author-sync.php
+    leaders-sync.php
+    series-sync.php
+  vendor/
+    .github/
+      workflows/
+        unit-tests.yaml
+    parsedown/
+      Parsedown.php
+    composer.json
+    LICENSE.txt
+    README.md
+  core-helpers.php
+  f12-quick-sync.php
+  module-base.php
+  README.md
+quick-sync-scripts/
+  dist/
+    series-sync.js
+  src/
+    lib/
+      sync-helpers.ts
+      wp-clients.ts
+    series-sync.ts
+  env.d.ts
+  package.json
+  README.md
+  tsconfig.json
+.gitattributes
+package.json
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="quick-sync-scripts/dist/series-sync.js">
+"use strict";(()=>{var g=t=>console.log(`[${new Date().toISOString()}]`,t),N=["publish","draft","trash","private"],T="API-SYNC",x="last_synced";function K(t,e=T){if(!t||!t.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}function O(t,e,a){let i=new Set;for(let r in t){let s=t[r];typeof s=="string"?i.add(r):(i.add(s.airtableIdField),s.airtableLinkField&&i.add(s.airtableLinkField))}return i.add("wp_id").add(e).add(a),Array.from(i)}function P(t,e){return e==null?null:Array.isArray(e)?e.map(a=>typeof a=="object"&&a!==null&&"name"in a?a.name:String(a)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function R(t,e){let a=t.parentTable,i={};for(let r in e){let s=e[r];if(typeof s=="string"){let o=t.getCellValue(r);s==="post_status"?i.post_status=o&&o.name?o.name.toLowerCase():typeof o=="string"?o.toLowerCase():null:i[s]=P(r,o);continue}let d=t.getCellValue(s.airtableIdField)||s.airtableLinkField&&t.getCellValue(s.airtableLinkField);d&&(i[s.wpKey]=d)}return i}async function D(t,e,a){let i=await fetch(t,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(a)}),r=await i.text();if(!i.ok)throw new Error(`HTTP ${i.status}: ${r.slice(0,500)}`);return{data:JSON.parse(r),status:i.status}}async function E(t){var b,k,w,S,F,h;let{airtableTable:e,fieldMap:a,envEndpoints:i,skuField:r,titleField:s,allowedStatuses:d=N,secretName:o=T}=t;if(!r||!s)throw new Error("quickSync: skuField and titleField are required");let{recordId:c,env:L="prod"}=input.config();if(!c)throw new Error("Automation must pass {recordId}.");let u=i[L]||i.prod;if(!u)throw new Error("wpUrl must be provided in config.");let f=Math.floor(Date.now()/1e3);g(`Quick-Sync (${e}) start \u2013 epoch ${f}`);let A=await input.secret(o),I=K(A,o),C=base.getTable(e),v=O(a,r,s),l=await C.selectRecordAsync(c,{fields:v});if(!l)throw new Error(`Record ${c} not found in ${e}`);let n=R(l,a);(b=n.sku)!=null||(n.sku=l.getCellValueAsString(r)),(k=n.post_title)!=null||(n.post_title=l.getCellValueAsString(s)||l.name),n[x]=f,n.post_status&&!d.includes(n.post_status)&&delete n.post_status;let _={airtableRecordId:l.id,sku:n.sku,wp_id:l.getCellValue("wp_id")||null,fields:n};console.log(JSON.stringify(_,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(_,null,2).slice(0,2500)),g(`POSTing to ${u}`);let{data:p,status:$}=await D(u,I,_),y=(S=p.post_id)!=null?S:(w=p==null?void 0:p.data)==null?void 0:w.post_id,m=(F=p.action)!=null?F:"unknown",M=(h=p.message)!=null?h:"";output.set("syncStatus",p&&y?"Success":`HTTP_${$}`),output.set("action",m),output.set("message",M),output.set("postTitle",n.post_title),output.set("wpPostId",y),g(`\u2705 WP ${m} \u2013  ${n.post_title}`)}var V={series_title:"post_title",series_slug:"post_name",long_date:"post_date",website_status:"post_status",series_sku:"sku",excerpt:"post_excerpt",series_permalink:"custom_permalink_uri",global_categories:"global-categories",series_filter_category:"series-categories",topics:"topics",series_template:"series-templates",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},primary_cta_image:{airtableIdField:"primary_cta_image_wp_id",airtableLinkField:"primary_cta_image_link",wpKey:"manual1-image"},series_description_title:"series-description_title",series_description:"series-description",who_is_it_for:"series-who-is-it-for",series_purpose:"series-purpose",series_colour_1:"series-colour-1",series_colour_2:"series-colour-2",print_pdf_link:"link_five",custom_pdf_link:"link_ten",youtube_playlist:"youtube-playlist-link",spotify_playlist:"spotify-playlist-link",apple_playlist:"apple-playlist-link",highlights_video:"highlights-video",primary_cta_heading:"manual1-title",primary_cta_title:"manual1-link-title",primary_cta_link:"manual1-link",secondary_cta_heading:"manual2-title",secondary_cta_title:"manual2-link-title",secondary_cta_link:"manual2-link",seo_description:"_aioseo_description",session_title:"custom-session-title",sessions_list:"series-episode-list",session_list_1:"series-episode-list-more",session_list_2:"series-episode-list-3",session_list_3:"series-episode-list-4"};E({airtableTable:"Series",skuField:"series_sku",titleField:"series_title",fieldMap:V,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/series-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync"}});})();
+</file>
+
+<file path="quick-sync-scripts/src/lib/sync-helpers.ts">
+/*********************************************************************
+ * sync-helpers.ts  –  shared utilities for Quick-Sync scripts
+ * ---------------------------------------------------------------
+ * Usage in a table-specific entry file (e.g. series-sync.ts):
+ *
+ *   import { quickSync } from './lib/sync-helpers';
+ *
+ *   quickSync({
+ *     airtableTable: 'Series',
+ *     fieldMap: FIELD_MAP,
+ *     envEndpoints: {
+ *       prod:    'https://four12global.com/wp-json/four12/v1/series-sync',
+ *       staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
+ *
+ *     },
+ *   });
+ *********************************************************************/
+
+/* =========  Types  ========= */
+export interface MediaSpec {
+  airtableIdField: string;
+  airtableLinkField?: string;
+  wpKey: string;
+}
+export type FieldMap = Record<
+  string,
+  string | MediaSpec
+>;
+
+export interface QuickSyncConfig {
+  airtableTable: string;
+  fieldMap: FieldMap;
+  envEndpoints: Record<string, string>;
+  skuField:   string;
+  titleField: string;
+  allowedStatuses?: string[];
+  secretName?:      string;
+}
+
+
+/* =========  Console helper ========= */
+const log = (msg: unknown) =>
+  console.log(`[${new Date().toISOString()}]`, msg);
+
+/* =========  Common constants ========= */
+const DEFAULT_ALLOWED_STATUSES = ['publish', 'draft', 'trash', 'private'];
+const DEFAULT_SECRET_NAME      = 'API-SYNC';
+const LAST_SYNCED_KEY          = 'last_synced';
+
+/* =========  Auth helper ========= */
+export function buildBasicAuth(secret: string, secretName = DEFAULT_SECRET_NAME) {
+  if (!secret || !secret.includes(':'))
+    throw new Error(`Secret "${secretName}" must be "user:app-password".`);
+  return Buffer.from(secret).toString('base64');
+}
+
+/* =========  Airtable field utils ========= */
+export function fieldsToFetch(
+  map: FieldMap,
+  skuField: string,
+  titleField: string,
+): string[] {
+  const s = new Set<string>();
+  for (const k in map) {
+    const v = map[k];
+    if (typeof v === 'string') s.add(k);
+    else {
+      s.add(v.airtableIdField);
+      if (v.airtableLinkField) s.add(v.airtableLinkField);
+    }
+  }
+  s.add('wp_id').add(skuField).add(titleField);
+  return Array.from(s);
+}
+
+/* Clean & coerce values so WP gets primitives */
+export function coerceValue(field: string, raw: any): any {
+  if (raw == null) return null;
+
+  // multiselects, linked records, lookups → array ⇢ names/strings
+  if (Array.isArray(raw)) {
+    return raw.map(x =>
+      (typeof x === 'object' && x !== null && 'name' in x)
+        ? x.name
+        : String(x)
+    );
+  }
+
+  // single attachment → url
+  if (typeof raw === 'object' && raw.url)
+    return raw.url;
+
+  // single-select object → name
+  if (typeof raw === 'object' && raw !== null && 'name' in raw)
+    return raw.name;
+
+  return raw; // plain string/number/date already fine
+}
+
+/* Build WP `fields` object */
+export function buildSyncFields(record: any, map: FieldMap): Record<string, any> {
+  const table = record.parentTable;         // Airtable API
+  const fields: Record<string, any> = {};
+
+  for (const src in map) {
+    const mapping = map[src];
+
+    // Simple 1⇢1 mapping
+    if (typeof mapping === 'string') {
+      const raw = record.getCellValue(src);
+      if (mapping === 'post_status') {
+        // status handled later (allowedStatuses check)
+        fields.post_status = raw && raw.name ? raw.name.toLowerCase() :
+                             typeof raw === 'string' ? raw.toLowerCase() : null;
+      } else {
+        fields[mapping] = coerceValue(src, raw);
+      }
+      continue;
+    }
+
+    // Media object
+    const val = record.getCellValue(mapping.airtableIdField) ||
+                (mapping.airtableLinkField && record.getCellValue(mapping.airtableLinkField));
+    if (val) fields[mapping.wpKey] = val;
+  }
+
+  return fields;
+}
+
+/* =========  WP fetch helper ========= */
+export async function postToWp(
+  url: string,
+  authB64: string,
+  payload: any
+) {
+  const res = await fetch(url, {
+    method:  'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:  `Basic ${authB64}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    // Even on error, it's useful to return the status
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
+  }
+  
+  // Return an object with both the parsed data and the status code
+  return {
+    data: JSON.parse(text),
+    status: res.status
+  };
+}
+
+/* =========  Main orchestrator ========= */
+export async function quickSync(cfg: QuickSyncConfig) {
+  const {
+    airtableTable,
+    fieldMap,
+    envEndpoints,
+    skuField,
+    titleField,
+    allowedStatuses = DEFAULT_ALLOWED_STATUSES,
+    secretName     = DEFAULT_SECRET_NAME,
+  } = cfg;
+  if (!skuField || !titleField)
+    throw new Error('quickSync: skuField and titleField are required');
+
+  /* ── Inputs ── */
+  const { recordId, env = 'prod' } = input.config();
+  if (!recordId) throw new Error('Automation must pass {recordId}.');
+  const wpUrl = envEndpoints[env] || envEndpoints['prod'];
+  if (!wpUrl) throw new Error('wpUrl must be provided in config.');
+
+  const syncEpoch = Math.floor(Date.now() / 1000);
+  log(`Quick-Sync (${airtableTable}) start – epoch ${syncEpoch}`);
+
+  /* ── Auth ── */
+  const authSecret = await input.secret(secretName);
+  const authB64    = buildBasicAuth(authSecret, secretName);
+
+  /* ── Fetch record ── */
+  const table  = base.getTable(airtableTable);
+  const fieldsNeeded = fieldsToFetch(fieldMap, skuField, titleField);
+  const record = await table.selectRecordAsync(recordId, { fields: fieldsNeeded });
+  if (!record) throw new Error(`Record ${recordId} not found in ${airtableTable}`);
+
+  /* ── Build fields ── */
+  const fields = buildSyncFields(record, fieldMap);
+
+  // Ensure SKU & title exist
+  fields.sku        ??= record.getCellValueAsString(skuField);
+  fields.post_title ??= record.getCellValueAsString(titleField) || record.name;
+  fields[LAST_SYNCED_KEY] = syncEpoch;
+
+  // post_status whitelist
+  if (fields.post_status && !allowedStatuses.includes(fields.post_status))
+    delete fields.post_status;
+
+  /* ── Assemble payload ── */
+  const payload = {
+    airtableRecordId: record.id,
+    sku:   fields.sku,
+    wp_id: record.getCellValue('wp_id') || null,
+    fields,
+  };
+  console.log(JSON.stringify(payload, null, 2).substring(0, 5000));
+  output.set(
+    'payloadSent',
+    JSON.stringify(payload, null, 2).slice(0, 2500)
+  );
+
+  
+/* ── POST to WP ── */
+log(`POSTing to ${wpUrl}`);
+// Use destructuring to get both `data` and `status` from the response
+const { data, status } = await postToWp(wpUrl, authB64, payload);
+
+/* ── Handle response ── */
+const postId  = data.post_id ?? data?.data?.post_id;
+const action  = data.action  ?? 'unknown';
+const message = data.message ?? '';
+
+output.set(
+  'syncStatus',
+  // Use the `status` variable we just received
+  data && postId ? 'Success' : `HTTP_${status}`
+);
+output.set('action',     action);
+output.set('message',    message);
+output.set('postTitle',  fields.post_title);
+output.set('wpPostId',   postId);
+log(`✅ WP ${action} –  ${fields.post_title}`);
+}
+</file>
+
+<file path="quick-sync-scripts/src/lib/wp-clients.ts">
+/* ------------------------------------------------------------------
+ * wp-client.ts   –  thin WordPress REST wrapper (fetch + error handling)
+ * ----------------------------------------------------------------- */
+
+export interface Endpoints {
+    prod:    string;
+    staging: string;
+    local:   string;
+    [key: string]: string;   // allow custom envs
+  }
+  
+  export interface WpResponse {
+    post_id?: number;
+    action?:  string;
+    sku?:     string;
+    message?: string;
+    [key: string]: any;      // plugin may add fields
+  }
+  
+  function buildBasicAuth(secret: string, secretName = 'API-SYNC'): string {
+    if (!secret || !secret.includes(':')) {
+      throw new Error(
+        `Secret "${secretName}" must be "user:app-password".`
+      );
+    }
+    return Buffer.from(secret).toString('base64');
+  }
+  
+  export function wpClient(endpoints: Endpoints, env = 'prod') {
+    const baseUrl = endpoints[env] || endpoints.prod;
+  
+    async function post<T extends WpResponse>(
+      path: string,
+      payload: any,
+      authSecret: string
+    ): Promise<T> {
+      const url   = `${baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+      const auth  = buildBasicAuth(authSecret);
+      const start = Date.now();
+  
+      const res = await fetch(url, {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization:  `Basic ${auth}`,
+        },
+        body: JSON.stringify(payload),
+      });
+  
+      const text = await res.text();
+      const ms   = Date.now() - start;
+  
+      if (!res.ok) {
+        throw new Error(`WP ${res.status} after ${ms} ms → ${text.slice(0,500)}`);
+      }
+  
+      try {
+        return JSON.parse(text) as T;
+      } catch {
+        throw new Error(`Bad JSON from WP (${ms} ms) → ${text.slice(0,500)}`);
+      }
+    }
+  
+    /* Convenience helpers ------------------------------------------------ */
+  
+    /** Sync (create/update) a CPT. Expects plugin JSON shape. */
+    async function syncPost(
+      payload: any,
+      authSecret: string
+    ): Promise<WpResponse> {
+      return post<WpResponse>('', payload, authSecret);   // root endpoint
+    }
+  
+    /** Sideload media from a URL or raw bytes */
+    async function uploadMedia(
+      mediaPayload: { url?: string; data?: string; filename?: string },
+      authSecret: string
+    ): Promise<WpResponse> {
+      return post<WpResponse>('media-upload', mediaPayload, authSecret);
+    }
+  
+    return { baseUrl, post, syncPost, uploadMedia };
+  }
+</file>
+
+<file path="quick-sync-scripts/src/series-sync.ts">
+import { quickSync } from './lib/sync-helpers';
+
+const FIELD_MAP = {
+  /* ── Core WP fields ───────────────────────────── */
+  series_title:      'post_title',
+  series_slug:       'post_name',
+  long_date:         'post_date',
+  website_status:    'post_status',
+  series_sku:        'sku',
+  excerpt:           'post_excerpt',
+
+  /* Custom permalink (Permalink Manager) */
+  series_permalink:  'custom_permalink_uri',
+
+  /* ── Taxonomies ──────────────────────────────── */
+  global_categories:      'global-categories',
+  series_filter_category: 'series-categories',
+  topics:                 'topics',
+  series_template:        'series-templates',
+
+  /* ── ACTIVE media (prefer ID, fallback URL) ──── */
+  featured_image: {
+    airtableIdField:   'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id',
+  },
+  listing_image: {
+    airtableIdField:   'listing_image_wp_id',
+    airtableLinkField: 'listing_image_link',
+    wpKey: 'listing-image',
+  },
+  no_words_image: {
+    airtableIdField:   'no_words_image_wp_id',
+    airtableLinkField: 'no_words_image_link',
+    wpKey: 'no-words-image',
+  },
+  banner_image: {
+    airtableIdField:   'banner_image_wp_id',
+    airtableLinkField: 'banner_image_link',
+    wpKey: 'banner-image',
+  },
+  primary_cta_image: {
+    airtableIdField:   'primary_cta_image_wp_id',
+    airtableLinkField: 'primary_cta_image_link',
+    wpKey: 'manual1-image',
+  },
+
+  /* ── Meta / CTA / SEO etc. ───────────────────── */
+  series_description_title: 'series-description_title',
+  series_description:       'series-description',
+  who_is_it_for:            'series-who-is-it-for',
+  series_purpose:           'series-purpose',
+  series_colour_1:          'series-colour-1',
+  series_colour_2:          'series-colour-2',
+  print_pdf_link:           'link_five',
+  custom_pdf_link:          'link_ten',
+  youtube_playlist:         'youtube-playlist-link',
+  spotify_playlist:         'spotify-playlist-link',
+  apple_playlist:           'apple-playlist-link',
+  highlights_video:         'highlights-video',
+
+  /* CTA blocks */
+  primary_cta_heading: 'manual1-title',
+  primary_cta_title:   'manual1-link-title',
+  primary_cta_link:    'manual1-link',
+  secondary_cta_heading: 'manual2-title',
+  secondary_cta_title:   'manual2-link-title',
+  secondary_cta_link:    'manual2-link',
+
+  seo_description:     '_aioseo_description',
+  session_title:       'custom-session-title',
+  sessions_list:       'series-episode-list',
+  session_list_1:      'series-episode-list-more',
+  session_list_2:      'series-episode-list-3',
+  session_list_3:      'series-episode-list-4',
+};
+
+quickSync({
+  /* ----- Airtable table name ----- */
+  airtableTable: 'Series',
+
+  /* ----- Airtable field that holds your permanent SKU & title ----- */
+  skuField:   'series_sku',
+  titleField: 'series_title',
+
+  /* ----- END per‑CPT overrides ----- */
+  fieldMap: FIELD_MAP,
+  envEndpoints: {
+    prod:    'https://four12global.com/wp-json/four12/v1/series-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
+  },
+});
+</file>
+
+<file path="quick-sync-scripts/env.d.ts">
+// Airtable scripting globals (injected at runtime)
+declare const input:  any;
+declare const output: any;
+declare const base:   any;
+</file>
+
+<file path="quick-sync-scripts/tsconfig.json">
+{
+    "compilerOptions": {
+      "target": "es2017",
+      "lib": ["es2017", "dom"],
+      "module": "commonjs",
+      "strict": true,
+      "esModuleInterop": true,
+      "outDir": "dist"
+    },
+    "include": ["src/**/*", "env.d.ts"]
+  }
+</file>
+
+<file path="package.json">
+{
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
+</file>
+
+<file path="quick-sync-plugin/modules/author-sync.php">
+<?php
+/**
+ * Quick Sync Module: Author/Speaker Taxonomy (Production Ready)
+ *
+ * This module syncs data from Airtable to the 'author_speaker' WordPress taxonomy.
+ *
+ * Features:
+ * - Implements a "whitelist" for meta fields to ensure data integrity and prevent database pollution.
+ * - Unknown meta keys from the payload are logged and ignored, not stored.
+ * - Restores the robust `wp_id` -> `SKU` -> `slug` lookup chain for de-duplication.
+ * - Only deletes meta on explicit `null` values to prevent accidental data loss.
+ * - Integrates Parsedown to convert Markdown bios to safe HTML.
+ * - Provides detailed logging and includes warnings in the API response for ignored fields.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+
+class F12_Author_Speaker_Sync_Module {
+
+    // --- Configuration ---
+    private $endpoint_slug = 'author-sync';
+    private $taxonomy = 'author_speaker';
+    private $sku_meta_key = 'sku';
+
+    /**
+     * @var array A whitelist of meta keys allowed to be synced from the payload.
+     * All other meta keys will be logged as a warning and ignored.
+     */
+    private $allowed_meta_keys = [
+        'profile_image',
+        'status',
+        // Add other known, valid meta keys here as your schema evolves.
+        // e.g., 'author_twitter_handle', 'author_linkedin_url'
+    ];
+    
+    /**
+     * Public getter for the main plugin router.
+     * @return string The slug for the REST API endpoint (e.g., 'author-sync').
+     */
+    public function get_endpoint_slug() {
+        return $this->endpoint_slug;
+    }
+
+    /**
+     * Public getter for the main plugin router to define API arguments.
+     * @return array Standard argument definitions for the REST endpoint.
+     */
+    public function get_rest_api_args() {
+        return [
+            'sku' => [
+                'type'              => 'string',
+                'required'          => true,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => 'Unique identifier (SKU) for the Author/Speaker term.',
+            ],
+            'fields' => [
+                'type'              => 'object',
+                'required'          => true,
+                'description'       => 'Object containing all term data fields.',
+            ],
+            'wp_id' => [
+                'type'              => 'integer',
+                'required'          => false,
+                'sanitize_callback' => 'absint',
+                'description'       => 'WordPress Term ID for fast-path updates.',
+            ],
+            'airtableRecordId' => [
+                'type'              => 'string',
+                'required'          => false,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => 'Optional Airtable Record ID for logging.',
+            ],
+        ];
+    }
+    
+    /**
+     * The main handler for the sync request.
+     */
+    public function handle_sync_request( WP_REST_Request $request ) {
+        $json_params = $request->get_json_params();
+
+        // --- 1. Validate Payload ---
+        $sku = isset( $json_params['sku'] ) ? sanitize_text_field( $json_params['sku'] ) : null;
+        $payload = isset( $json_params['fields'] ) ? (array) $json_params['fields'] : null;
+        $wp_id = isset( $json_params['wp_id'] ) ? absint( $json_params['wp_id'] ) : 0;
+        
+        if ( empty($sku) || empty($payload) || empty($payload['name']) ) {
+             return new WP_Error('f12_invalid_author_payload', 'Request requires a top-level SKU and a fields object containing at least a "name".', ['status' => 400]);
+        }
+        
+        // --- 2. Find Existing Term ---
+        $existing_term = $this->find_existing_term($sku, $payload, $wp_id);
+        $mode = $existing_term ? 'update' : 'create';
+        
+        // --- 3. Prepare Core Term Data ---
+        $name = sanitize_text_field($payload['name']);
+        $slug = isset($payload['slug']) ? sanitize_title($payload['slug']) : sanitize_title($name);
+        // Prefer as_description, then description, then empty string
+        $raw_description = $payload['as_description'] ?? $payload['description'] ?? '';
+        if (isset($payload['as_description']) && is_string($payload['as_description']) && class_exists('Parsedown')) {
+            $description = wp_kses_post(Parsedown::instance()->setSafeMode(true)->text($payload['as_description']));
+        } else {
+            $description = is_string($raw_description) ? $raw_description : '';
+        }
+        // Build term_data WITHOUT 'description'
+        $term_data = [
+            'slug' => $slug,
+        ];
+
+        // --- 4. Create or Update Term ---
+        if ('update' === $mode) {
+            $result = wp_update_term($existing_term->term_id, $this->taxonomy, $term_data);
+            $term_id = is_wp_error($result) ? 0 : $existing_term->term_id;
+        } else {
+            $result = wp_insert_term($name, $this->taxonomy, $term_data);
+            $term_id = is_wp_error($result) ? 0 : (int) $result['term_id'];
+        }
+
+        // --- Save the rich-text HTML into term-meta (as_description) ---
+        if ($term_id) {
+            $current = get_term_meta($term_id, 'as_description', true);
+            if ($current !== $description) {
+                update_term_meta($term_id, 'as_description', wp_kses_post($description));
+            }
+        }
+
+        if (is_wp_error($result) || $term_id === 0) {
+            $error_message = is_wp_error($result) ? $result->get_error_message() : 'Term could not be created or updated.';
+            return new WP_Error('f12_term_save_failed', $error_message, ['status' => 500]);
+        }
+
+        // --- 5. Process Meta Fields (using the Whitelist approach) ---
+        $this->process_meta_fields($term_id, $sku, $payload, $ignored_keys_for_response);
+        
+        // --- 6. Return Success Response ---
+        $response_data = [
+            'term_id' => $term_id,
+            'action'  => $mode,
+            'sku'     => $sku,
+            'message' => sprintf('Author/Speaker term (ID: %d) %s successfully.', $term_id, $mode),
+        ];
+
+        if (!empty($ignored_keys_for_response)) {
+            $response_data['warnings'] = [
+                'ignored_meta_keys' => array_unique($ignored_keys_for_response)
+            ];
+        }
+
+        return rest_ensure_response($response_data);
+    }
+    
+    /**
+     * Finds an existing term using the robust `wp_id` -> `SKU` -> `slug` lookup chain.
+     *
+     * @param string $sku The unique SKU for the term.
+     * @param array $payload The incoming fields payload, used to get the slug.
+     * @param int $wp_id The WordPress Term ID, if provided.
+     * @return WP_Term|null The found term object or null.
+     */
+    private function find_existing_term($sku, $payload, $wp_id) {
+        // 1. Fast-path: Check provided Term ID first.
+        if ($wp_id > 0) {
+            $term = get_term($wp_id, $this->taxonomy);
+            if ($term && !is_wp_error($term) && get_term_meta($term->term_id, $this->sku_meta_key, true) === $sku) {
+                f12_sync_log(sprintf('[AuthorSync] Term found via fast-path wp_id: %d', $wp_id));
+                return $term;
+            }
+        }
+        
+        // 2. Primary lookup: Find by SKU meta key.
+        $terms = get_terms([
+            'taxonomy'   => $this->taxonomy,
+            'hide_empty' => false,
+            'number'     => 1,
+            'meta_query' => [['key' => $this->sku_meta_key, 'value' => $sku]],
+        ]);
+        if (!empty($terms) && !is_wp_error($terms)) {
+            f12_sync_log(sprintf('[AuthorSync] Term found via SKU meta: %s', $sku));
+            return $terms[0];
+        }
+        
+        // 3. Fallback: Find by slug (for claiming manually created terms).
+        $slug_to_check = isset($payload['slug']) ? $payload['slug'] : (isset($payload['name']) ? $payload['name'] : '');
+        if (!empty($slug_to_check)) {
+            $slug = sanitize_title($slug_to_check);
+            $term = get_term_by('slug', $slug, $this->taxonomy);
+            if ($term && !is_wp_error($term)) {
+                $existing_sku = get_term_meta($term->term_id, $this->sku_meta_key, true);
+                if (empty($existing_sku)) {
+                    f12_sync_log(sprintf('[AuthorSync] Term found via SLUG FALLBACK: %s. Claiming it for SKU %s.', $slug, $sku));
+                    return $term;
+                }
+            }
+        }
+        
+        return null; // Term not found
+    }
+
+    /**
+     * Safely processes meta fields based on the whitelist.
+     *
+     * @param int $term_id The ID of the term to update.
+     * @param string $sku The SKU of the term, for special handling.
+     * @param array $payload The incoming fields payload.
+     * @param array &$ignored_keys_for_response A reference to an array to store warnings.
+     */
+    private function process_meta_fields($term_id, $sku, $payload, &$ignored_keys_for_response = []) {
+        // Always ensure the SKU meta is set correctly.
+        update_term_meta($term_id, $this->sku_meta_key, $sku);
+        
+        // These keys were handled as core properties and should not be processed as meta.
+        $handled_core_keys = ['name', 'slug', 'as_description'];
+        
+        foreach ($payload as $meta_key => $meta_value) {
+            // Skip keys that are core properties or the SKU itself.
+            if (in_array($meta_key, $handled_core_keys, true) || $meta_key === $this->sku_meta_key) {
+                continue;
+            }
+
+            $meta_key_sanitized = sanitize_key($meta_key);
+
+            // --- THE WHITELIST GATE ---
+            if (!in_array($meta_key_sanitized, $this->allowed_meta_keys, true)) {
+                f12_sync_log(sprintf('[AuthorSync] Ignored unknown meta key "%s" for term ID %d. Not in allowed list.', $meta_key_sanitized, $term_id));
+                $ignored_keys_for_response[] = $meta_key_sanitized;
+                continue; // Skip rogue key
+            }
+
+            // --- SAFE META HANDLING (for whitelisted keys only) ---
+            if ($meta_value === null) {
+                // Explicitly delete meta if the payload sends null.
+                delete_term_meta($term_id, $meta_key_sanitized);
+                f12_sync_log(sprintf('[AuthorSync] Deleted meta key "%s" for term ID %d due to null value.', $meta_key_sanitized, $term_id));
+            } else {
+                // Update meta for any other value.
+                update_term_meta($term_id, $meta_key_sanitized, $meta_value);
+            }
+        }
+    }
+}
+</file>
+
+<file path="quick-sync-plugin/modules/leaders-sync.php">
+<?php
+/**
+ * Quick Sync Module: Leaders CPT (f12-leaders)
+ *
+ * Provides the specific configuration for syncing the 'f12-leaders' Custom Post Type.
+ * This module includes special handling to parse a Markdown description into HTML.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Leader_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'f12-leaders' CPT.
+     */
+    protected function init() {
+        // --- 1. Core Configuration ---
+        $this->cpt = 'f12-leaders';
+        $this->endpoint_slug = 'leader-sync';
+        $this->sku_meta_key = 'leader_sku';
+
+        // --- 2. Field Mapping (Payload Key => WP Destination) ---
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_excerpt' => 'post_excerpt', // Airtable 'leader_description' is mapped here.
+        ];
+
+        $this->taxonomy_map = [
+            'leadership-role' => 'leadership-role',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+        ];
+
+        $this->post_content_key = null;
+    }
+
+    /**
+     * Override the special meta processing hook to handle Markdown conversion.
+     */
+    protected function _process_special_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // Check if the 'leader_description' field exists in the payload.
+        if ( array_key_exists( 'leader_description', $payload ) ) {
+            
+            $raw_markdown = $payload['leader_description'];
+            $html_output = '';
+
+            // Ensure Parsedown is available and the value is a non-empty string.
+            if ( class_exists('Parsedown') && is_string($raw_markdown) && !empty($raw_markdown) ) {
+                // Convert Markdown to safe HTML.
+                $html_output = wp_kses_post( Parsedown::instance()->setSafeMode(true)->text($raw_markdown) );
+                f12_sync_log(sprintf('[LeaderSync] Parsed Markdown for leader_description on post ID %d.', $post_id));
+            } else {
+                // If it's not a string or Parsedown is missing, just sanitize it.
+                $html_output = is_string($raw_markdown) ? wp_kses_post($raw_markdown) : '';
+            }
+
+            // Update the meta field with the processed HTML.
+            update_post_meta($post_id, 'leader_description', $html_output);
+
+            // IMPORTANT: Unset the key from the payload so the base class
+            // doesn't process it a second time as a generic meta field.
+            unset($payload['leader_description']);
+
+            // Log the change for the response summary.
+            if ( ! in_array( 'leader_description (Markdown parsed)', $changed_summary['special'] ) ) {
+                $changed_summary['special'][] = 'leader_description (Markdown parsed)';
+            }
+        }
+    }
+}
+</file>
+
+<file path="quick-sync-plugin/modules/series-sync.php">
+<?php
+/**
+ * Quick Sync Module: Series CPT
+ *
+ * Provides the specific configuration for syncing the 'series' Custom Post Type.
+ * It inherits all universal processing logic (Timezone, AIOSEO, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'series' CPT.
+     */
+    protected function init() {
+        // --- Core Configuration ---
+        $this->cpt = 'series';
+        $this->endpoint_slug = 'series-sync';
+        $this->sku_meta_key = 'sku';
+
+        // --- Field Mapping ---
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_date'    => 'post_date',
+            'post_status'  => 'post_status',
+        ];
+
+        $this->taxonomy_map = [
+            'global-categories' => 'global-categories',
+            'series-categories' => 'series-categories',
+            'topics'            => 'topics',
+            'series-templates'  => 'series-templates',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+            'listing-image',
+            'no-words-image',
+            'banner-image',
+            'manual1-image',
+        ];
+
+        $this->post_content_key = 'series-description';
+        $this->duplicate_post_content_to_meta = true;
+    }
+
+    // No other methods are needed here. The timezone and AIOSEO logic
+    // are now handled automatically by the base class.
+}
+</file>
+
+<file path="quick-sync-plugin/vendor/.github/workflows/unit-tests.yaml">
+on:
+    - push
+    - pull_request
+
+jobs:
+    phpunit:
+        runs-on: ubuntu-latest
+
+        strategy:
+            matrix:
+                php:
+                    - '7.1'
+                    - '7.2'
+                    - '7.3'
+                    - '7.4'
+                    - '8.0'
+                    - '8.1'
+                    - '8.2'
+                    - '8.3'
+                    - '8.4'
+
+        steps:
+            - name: Checkout the source code
+              uses: actions/checkout@v4
+
+            - name: Set up PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '${{ matrix.php }}'
+
+            - name: Install dependencies
+              run: composer install
+
+            - name: Run tests
+              run: |
+                  vendor/bin/phpunit
+                  vendor/bin/phpunit test/CommonMarkTestWeak.php || true
+</file>
+
+<file path="quick-sync-plugin/vendor/parsedown/Parsedown.php">
+<?php
+
+#
+#
+# Parsedown
+# http://parsedown.org
+#
+# (c) Emanuil Rusev
+# http://erusev.com
+#
+# For the full license information, view the LICENSE file that was distributed
+# with this source code.
+#
+#
+
+class Parsedown
+{
+    # ~
+
+    const version = '1.8.0';
+
+    # ~
+
+    function text($text)
+    {
+        $Elements = $this->textElements($text);
+
+        # convert to markup
+        $markup = $this->elements($Elements);
+
+        # trim line breaks
+        $markup = trim($markup, "\n");
+
+        return $markup;
+    }
+
+    protected function textElements($text)
+    {
+        # make sure no definitions are set
+        $this->DefinitionData = array();
+
+        # standardize line breaks
+        $text = str_replace(array("\r\n", "\r"), "\n", $text);
+
+        # remove surrounding line breaks
+        $text = trim($text, "\n");
+
+        # split text into lines
+        $lines = explode("\n", $text);
+
+        # iterate through lines to identify blocks
+        return $this->linesElements($lines);
+    }
+
+    #
+    # Setters
+    #
+
+    function setBreaksEnabled($breaksEnabled)
+    {
+        $this->breaksEnabled = $breaksEnabled;
+
+        return $this;
+    }
+
+    protected $breaksEnabled;
+
+    function setMarkupEscaped($markupEscaped)
+    {
+        $this->markupEscaped = $markupEscaped;
+
+        return $this;
+    }
+
+    protected $markupEscaped;
+
+    function setUrlsLinked($urlsLinked)
+    {
+        $this->urlsLinked = $urlsLinked;
+
+        return $this;
+    }
+
+    protected $urlsLinked = true;
+
+    function setSafeMode($safeMode)
+    {
+        $this->safeMode = (bool) $safeMode;
+
+        return $this;
+    }
+
+    protected $safeMode;
+
+    function setStrictMode($strictMode)
+    {
+        $this->strictMode = (bool) $strictMode;
+
+        return $this;
+    }
+
+    protected $strictMode;
+
+    protected $safeLinksWhitelist = array(
+        'http://',
+        'https://',
+        'ftp://',
+        'ftps://',
+        'mailto:',
+        'tel:',
+        'data:image/png;base64,',
+        'data:image/gif;base64,',
+        'data:image/jpeg;base64,',
+        'irc:',
+        'ircs:',
+        'git:',
+        'ssh:',
+        'news:',
+        'steam:',
+    );
+
+    #
+    # Lines
+    #
+
+    protected $BlockTypes = array(
+        '#' => array('Header'),
+        '*' => array('Rule', 'List'),
+        '+' => array('List'),
+        '-' => array('SetextHeader', 'Table', 'Rule', 'List'),
+        '0' => array('List'),
+        '1' => array('List'),
+        '2' => array('List'),
+        '3' => array('List'),
+        '4' => array('List'),
+        '5' => array('List'),
+        '6' => array('List'),
+        '7' => array('List'),
+        '8' => array('List'),
+        '9' => array('List'),
+        ':' => array('Table'),
+        '<' => array('Comment', 'Markup'),
+        '=' => array('SetextHeader'),
+        '>' => array('Quote'),
+        '[' => array('Reference'),
+        '_' => array('Rule'),
+        '`' => array('FencedCode'),
+        '|' => array('Table'),
+        '~' => array('FencedCode'),
+    );
+
+    # ~
+
+    protected $unmarkedBlockTypes = array(
+        'Code',
+    );
+
+    #
+    # Blocks
+    #
+
+    protected function lines(array $lines)
+    {
+        return $this->elements($this->linesElements($lines));
+    }
+
+    protected function linesElements(array $lines)
+    {
+        $Elements = array();
+        $CurrentBlock = null;
+
+        foreach ($lines as $line)
+        {
+            if (chop($line) === '')
+            {
+                if (isset($CurrentBlock))
+                {
+                    $CurrentBlock['interrupted'] = (isset($CurrentBlock['interrupted'])
+                        ? $CurrentBlock['interrupted'] + 1 : 1
+                    );
+                }
+
+                continue;
+            }
+
+            while (($beforeTab = strstr($line, "\t", true)) !== false)
+            {
+                $shortage = 4 - mb_strlen($beforeTab, 'utf-8') % 4;
+
+                $line = $beforeTab
+                    . str_repeat(' ', $shortage)
+                    . substr($line, strlen($beforeTab) + 1)
+                ;
+            }
+
+            $indent = strspn($line, ' ');
+
+            $text = $indent > 0 ? substr($line, $indent) : $line;
+
+            # ~
+
+            $Line = array('body' => $line, 'indent' => $indent, 'text' => $text);
+
+            # ~
+
+            if (isset($CurrentBlock['continuable']))
+            {
+                $methodName = 'block' . $CurrentBlock['type'] . 'Continue';
+                $Block = $this->$methodName($Line, $CurrentBlock);
+
+                if (isset($Block))
+                {
+                    $CurrentBlock = $Block;
+
+                    continue;
+                }
+                else
+                {
+                    if ($this->isBlockCompletable($CurrentBlock['type']))
+                    {
+                        $methodName = 'block' . $CurrentBlock['type'] . 'Complete';
+                        $CurrentBlock = $this->$methodName($CurrentBlock);
+                    }
+                }
+            }
+
+            # ~
+
+            $marker = $text[0];
+
+            # ~
+
+            $blockTypes = $this->unmarkedBlockTypes;
+
+            if (isset($this->BlockTypes[$marker]))
+            {
+                foreach ($this->BlockTypes[$marker] as $blockType)
+                {
+                    $blockTypes []= $blockType;
+                }
+            }
+
+            #
+            # ~
+
+            foreach ($blockTypes as $blockType)
+            {
+                $Block = $this->{"block$blockType"}($Line, $CurrentBlock);
+
+                if (isset($Block))
+                {
+                    $Block['type'] = $blockType;
+
+                    if ( ! isset($Block['identified']))
+                    {
+                        if (isset($CurrentBlock))
+                        {
+                            $Elements[] = $this->extractElement($CurrentBlock);
+                        }
+
+                        $Block['identified'] = true;
+                    }
+
+                    if ($this->isBlockContinuable($blockType))
+                    {
+                        $Block['continuable'] = true;
+                    }
+
+                    $CurrentBlock = $Block;
+
+                    continue 2;
+                }
+            }
+
+            # ~
+
+            if (isset($CurrentBlock) and $CurrentBlock['type'] === 'Paragraph')
+            {
+                $Block = $this->paragraphContinue($Line, $CurrentBlock);
+            }
+
+            if (isset($Block))
+            {
+                $CurrentBlock = $Block;
+            }
+            else
+            {
+                if (isset($CurrentBlock))
+                {
+                    $Elements[] = $this->extractElement($CurrentBlock);
+                }
+
+                $CurrentBlock = $this->paragraph($Line);
+
+                $CurrentBlock['identified'] = true;
+            }
+        }
+
+        # ~
+
+        if (isset($CurrentBlock['continuable']) and $this->isBlockCompletable($CurrentBlock['type']))
+        {
+            $methodName = 'block' . $CurrentBlock['type'] . 'Complete';
+            $CurrentBlock = $this->$methodName($CurrentBlock);
+        }
+
+        # ~
+
+        if (isset($CurrentBlock))
+        {
+            $Elements[] = $this->extractElement($CurrentBlock);
+        }
+
+        # ~
+
+        return $Elements;
+    }
+
+    protected function extractElement(array $Component)
+    {
+        if ( ! isset($Component['element']))
+        {
+            if (isset($Component['markup']))
+            {
+                $Component['element'] = array('rawHtml' => $Component['markup']);
+            }
+            elseif (isset($Component['hidden']))
+            {
+                $Component['element'] = array();
+            }
+        }
+
+        return $Component['element'];
+    }
+
+    protected function isBlockContinuable($Type)
+    {
+        return method_exists($this, 'block' . $Type . 'Continue');
+    }
+
+    protected function isBlockCompletable($Type)
+    {
+        return method_exists($this, 'block' . $Type . 'Complete');
+    }
+
+    #
+    # Code
+
+    protected function blockCode($Line, $Block = null)
+    {
+        if (isset($Block) and $Block['type'] === 'Paragraph' and ! isset($Block['interrupted']))
+        {
+            return;
+        }
+
+        if ($Line['indent'] >= 4)
+        {
+            $text = substr($Line['body'], 4);
+
+            $Block = array(
+                'element' => array(
+                    'name' => 'pre',
+                    'element' => array(
+                        'name' => 'code',
+                        'text' => $text,
+                    ),
+                ),
+            );
+
+            return $Block;
+        }
+    }
+
+    protected function blockCodeContinue($Line, $Block)
+    {
+        if ($Line['indent'] >= 4)
+        {
+            if (isset($Block['interrupted']))
+            {
+                $Block['element']['element']['text'] .= str_repeat("\n", $Block['interrupted']);
+
+                unset($Block['interrupted']);
+            }
+
+            $Block['element']['element']['text'] .= "\n";
+
+            $text = substr($Line['body'], 4);
+
+            $Block['element']['element']['text'] .= $text;
+
+            return $Block;
+        }
+    }
+
+    protected function blockCodeComplete($Block)
+    {
+        return $Block;
+    }
+
+    #
+    # Comment
+
+    protected function blockComment($Line)
+    {
+        if ($this->markupEscaped or $this->safeMode)
+        {
+            return;
+        }
+
+        if (strpos($Line['text'], '<!--') === 0)
+        {
+            $Block = array(
+                'element' => array(
+                    'rawHtml' => $Line['body'],
+                    'autobreak' => true,
+                ),
+            );
+
+            if (strpos($Line['text'], '-->') !== false)
+            {
+                $Block['closed'] = true;
+            }
+
+            return $Block;
+        }
+    }
+
+    protected function blockCommentContinue($Line, array $Block)
+    {
+        if (isset($Block['closed']))
+        {
+            return;
+        }
+
+        $Block['element']['rawHtml'] .= "\n" . $Line['body'];
+
+        if (strpos($Line['text'], '-->') !== false)
+        {
+            $Block['closed'] = true;
+        }
+
+        return $Block;
+    }
+
+    #
+    # Fenced Code
+
+    protected function blockFencedCode($Line)
+    {
+        $marker = $Line['text'][0];
+
+        $openerLength = strspn($Line['text'], $marker);
+
+        if ($openerLength < 3)
+        {
+            return;
+        }
+
+        $infostring = trim(substr($Line['text'], $openerLength), "\t ");
+
+        if (strpos($infostring, '`') !== false)
+        {
+            return;
+        }
+
+        $Element = array(
+            'name' => 'code',
+            'text' => '',
+        );
+
+        if ($infostring !== '')
+        {
+            /**
+             * https://www.w3.org/TR/2011/WD-html5-20110525/elements.html#classes
+             * Every HTML element may have a class attribute specified.
+             * The attribute, if specified, must have a value that is a set
+             * of space-separated tokens representing the various classes
+             * that the element belongs to.
+             * [...]
+             * The space characters, for the purposes of this specification,
+             * are U+0020 SPACE, U+0009 CHARACTER TABULATION (tab),
+             * U+000A LINE FEED (LF), U+000C FORM FEED (FF), and
+             * U+000D CARRIAGE RETURN (CR).
+             */
+            $language = substr($infostring, 0, strcspn($infostring, " \t\n\f\r"));
+
+            $Element['attributes'] = array('class' => "language-$language");
+        }
+
+        $Block = array(
+            'char' => $marker,
+            'openerLength' => $openerLength,
+            'element' => array(
+                'name' => 'pre',
+                'element' => $Element,
+            ),
+        );
+
+        return $Block;
+    }
+
+    protected function blockFencedCodeContinue($Line, $Block)
+    {
+        if (isset($Block['complete']))
+        {
+            return;
+        }
+
+        if (isset($Block['interrupted']))
+        {
+            $Block['element']['element']['text'] .= str_repeat("\n", $Block['interrupted']);
+
+            unset($Block['interrupted']);
+        }
+
+        if (($len = strspn($Line['text'], $Block['char'])) >= $Block['openerLength']
+            and chop(substr($Line['text'], $len), ' ') === ''
+        ) {
+            $Block['element']['element']['text'] = substr($Block['element']['element']['text'], 1);
+
+            $Block['complete'] = true;
+
+            return $Block;
+        }
+
+        $Block['element']['element']['text'] .= "\n" . $Line['body'];
+
+        return $Block;
+    }
+
+    protected function blockFencedCodeComplete($Block)
+    {
+        return $Block;
+    }
+
+    #
+    # Header
+
+    protected function blockHeader($Line)
+    {
+        $level = strspn($Line['text'], '#');
+
+        if ($level > 6)
+        {
+            return;
+        }
+
+        $text = trim($Line['text'], '#');
+
+        if ($this->strictMode and isset($text[0]) and $text[0] !== ' ')
+        {
+            return;
+        }
+
+        $text = trim($text, ' ');
+
+        $Block = array(
+            'element' => array(
+                'name' => 'h' . $level,
+                'handler' => array(
+                    'function' => 'lineElements',
+                    'argument' => $text,
+                    'destination' => 'elements',
+                )
+            ),
+        );
+
+        return $Block;
+    }
+
+    #
+    # List
+
+    protected function blockList($Line, ?array $CurrentBlock = null)
+    {
+        list($name, $pattern) = $Line['text'][0] <= '-' ? array('ul', '[*+-]') : array('ol', '[0-9]{1,9}+[.\)]');
+
+        if (preg_match('/^('.$pattern.'([ ]++|$))(.*+)/', $Line['text'], $matches))
+        {
+            $contentIndent = strlen($matches[2]);
+
+            if ($contentIndent >= 5)
+            {
+                $contentIndent -= 1;
+                $matches[1] = substr($matches[1], 0, -$contentIndent);
+                $matches[3] = str_repeat(' ', $contentIndent) . $matches[3];
+            }
+            elseif ($contentIndent === 0)
+            {
+                $matches[1] .= ' ';
+            }
+
+            $markerWithoutWhitespace = strstr($matches[1], ' ', true);
+
+            $Block = array(
+                'indent' => $Line['indent'],
+                'pattern' => $pattern,
+                'data' => array(
+                    'type' => $name,
+                    'marker' => $matches[1],
+                    'markerType' => ($name === 'ul' ? $markerWithoutWhitespace : substr($markerWithoutWhitespace, -1)),
+                ),
+                'element' => array(
+                    'name' => $name,
+                    'elements' => array(),
+                ),
+            );
+            $Block['data']['markerTypeRegex'] = preg_quote($Block['data']['markerType'], '/');
+
+            if ($name === 'ol')
+            {
+                $listStart = ltrim(strstr($matches[1], $Block['data']['markerType'], true), '0') ?: '0';
+
+                if ($listStart !== '1')
+                {
+                    if (
+                        isset($CurrentBlock)
+                        and $CurrentBlock['type'] === 'Paragraph'
+                        and ! isset($CurrentBlock['interrupted'])
+                    ) {
+                        return;
+                    }
+
+                    $Block['element']['attributes'] = array('start' => $listStart);
+                }
+            }
+
+            $Block['li'] = array(
+                'name' => 'li',
+                'handler' => array(
+                    'function' => 'li',
+                    'argument' => !empty($matches[3]) ? array($matches[3]) : array(),
+                    'destination' => 'elements'
+                )
+            );
+
+            $Block['element']['elements'] []= & $Block['li'];
+
+            return $Block;
+        }
+    }
+
+    protected function blockListContinue($Line, array $Block)
+    {
+        if (isset($Block['interrupted']) and empty($Block['li']['handler']['argument']))
+        {
+            return null;
+        }
+
+        $requiredIndent = ($Block['indent'] + strlen($Block['data']['marker']));
+
+        if ($Line['indent'] < $requiredIndent
+            and (
+                (
+                    $Block['data']['type'] === 'ol'
+                    and preg_match('/^[0-9]++'.$Block['data']['markerTypeRegex'].'(?:[ ]++(.*)|$)/', $Line['text'], $matches)
+                ) or (
+                    $Block['data']['type'] === 'ul'
+                    and preg_match('/^'.$Block['data']['markerTypeRegex'].'(?:[ ]++(.*)|$)/', $Line['text'], $matches)
+                )
+            )
+        ) {
+            if (isset($Block['interrupted']))
+            {
+                $Block['li']['handler']['argument'] []= '';
+
+                $Block['loose'] = true;
+
+                unset($Block['interrupted']);
+            }
+
+            unset($Block['li']);
+
+            $text = isset($matches[1]) ? $matches[1] : '';
+
+            $Block['indent'] = $Line['indent'];
+
+            $Block['li'] = array(
+                'name' => 'li',
+                'handler' => array(
+                    'function' => 'li',
+                    'argument' => array($text),
+                    'destination' => 'elements'
+                )
+            );
+
+            $Block['element']['elements'] []= & $Block['li'];
+
+            return $Block;
+        }
+        elseif ($Line['indent'] < $requiredIndent and $this->blockList($Line))
+        {
+            return null;
+        }
+
+        if ($Line['text'][0] === '[' and $this->blockReference($Line))
+        {
+            return $Block;
+        }
+
+        if ($Line['indent'] >= $requiredIndent)
+        {
+            if (isset($Block['interrupted']))
+            {
+                $Block['li']['handler']['argument'] []= '';
+
+                $Block['loose'] = true;
+
+                unset($Block['interrupted']);
+            }
+
+            $text = substr($Line['body'], $requiredIndent);
+
+            $Block['li']['handler']['argument'] []= $text;
+
+            return $Block;
+        }
+
+        if ( ! isset($Block['interrupted']))
+        {
+            $text = preg_replace('/^[ ]{0,'.$requiredIndent.'}+/', '', $Line['body']);
+
+            $Block['li']['handler']['argument'] []= $text;
+
+            return $Block;
+        }
+    }
+
+    protected function blockListComplete(array $Block)
+    {
+        if (isset($Block['loose']))
+        {
+            foreach ($Block['element']['elements'] as &$li)
+            {
+                if (end($li['handler']['argument']) !== '')
+                {
+                    $li['handler']['argument'] []= '';
+                }
+            }
+        }
+
+        return $Block;
+    }
+
+    #
+    # Quote
+
+    protected function blockQuote($Line)
+    {
+        if (preg_match('/^>[ ]?+(.*+)/', $Line['text'], $matches))
+        {
+            $Block = array(
+                'element' => array(
+                    'name' => 'blockquote',
+                    'handler' => array(
+                        'function' => 'linesElements',
+                        'argument' => (array) $matches[1],
+                        'destination' => 'elements',
+                    )
+                ),
+            );
+
+            return $Block;
+        }
+    }
+
+    protected function blockQuoteContinue($Line, array $Block)
+    {
+        if (isset($Block['interrupted']))
+        {
+            return;
+        }
+
+        if ($Line['text'][0] === '>' and preg_match('/^>[ ]?+(.*+)/', $Line['text'], $matches))
+        {
+            $Block['element']['handler']['argument'] []= $matches[1];
+
+            return $Block;
+        }
+
+        if ( ! isset($Block['interrupted']))
+        {
+            $Block['element']['handler']['argument'] []= $Line['text'];
+
+            return $Block;
+        }
+    }
+
+    #
+    # Rule
+
+    protected function blockRule($Line)
+    {
+        $marker = $Line['text'][0];
+
+        if (substr_count($Line['text'], $marker) >= 3 and chop($Line['text'], " $marker") === '')
+        {
+            $Block = array(
+                'element' => array(
+                    'name' => 'hr',
+                ),
+            );
+
+            return $Block;
+        }
+    }
+
+    #
+    # Setext
+
+    protected function blockSetextHeader($Line, ?array $Block = null)
+    {
+        if ( ! isset($Block) or $Block['type'] !== 'Paragraph' or isset($Block['interrupted']))
+        {
+            return;
+        }
+
+        if ($Line['indent'] < 4 and chop(chop($Line['text'], ' '), $Line['text'][0]) === '')
+        {
+            $Block['element']['name'] = $Line['text'][0] === '=' ? 'h1' : 'h2';
+
+            return $Block;
+        }
+    }
+
+    #
+    # Markup
+
+    protected function blockMarkup($Line)
+    {
+        if ($this->markupEscaped or $this->safeMode)
+        {
+            return;
+        }
+
+        if (preg_match('/^<[\/]?+(\w*)(?:[ ]*+'.$this->regexHtmlAttribute.')*+[ ]*+(\/)?>/', $Line['text'], $matches))
+        {
+            $element = strtolower($matches[1]);
+
+            if (in_array($element, $this->textLevelElements))
+            {
+                return;
+            }
+
+            $Block = array(
+                'name' => $matches[1],
+                'element' => array(
+                    'rawHtml' => $Line['text'],
+                    'autobreak' => true,
+                ),
+            );
+
+            return $Block;
+        }
+    }
+
+    protected function blockMarkupContinue($Line, array $Block)
+    {
+        if (isset($Block['closed']) or isset($Block['interrupted']))
+        {
+            return;
+        }
+
+        $Block['element']['rawHtml'] .= "\n" . $Line['body'];
+
+        return $Block;
+    }
+
+    #
+    # Reference
+
+    protected function blockReference($Line)
+    {
+        if (strpos($Line['text'], ']') !== false
+            and preg_match('/^\[(.+?)\]:[ ]*+<?(\S+?)>?(?:[ ]+["\'(](.+)["\')])?[ ]*+$/', $Line['text'], $matches)
+        ) {
+            $id = strtolower($matches[1]);
+
+            $Data = array(
+                'url' => $matches[2],
+                'title' => isset($matches[3]) ? $matches[3] : null,
+            );
+
+            $this->DefinitionData['Reference'][$id] = $Data;
+
+            $Block = array(
+                'element' => array(),
+            );
+
+            return $Block;
+        }
+    }
+
+    #
+    # Table
+
+    protected function blockTable($Line, ?array $Block = null)
+    {
+        if ( ! isset($Block) or $Block['type'] !== 'Paragraph' or isset($Block['interrupted']))
+        {
+            return;
+        }
+
+        if (
+            strpos($Block['element']['handler']['argument'], '|') === false
+            and strpos($Line['text'], '|') === false
+            and strpos($Line['text'], ':') === false
+            or strpos($Block['element']['handler']['argument'], "\n") !== false
+        ) {
+            return;
+        }
+
+        if (chop($Line['text'], ' -:|') !== '')
+        {
+            return;
+        }
+
+        $alignments = array();
+
+        $divider = $Line['text'];
+
+        $divider = trim($divider);
+        $divider = trim($divider, '|');
+
+        $dividerCells = explode('|', $divider);
+
+        foreach ($dividerCells as $dividerCell)
+        {
+            $dividerCell = trim($dividerCell);
+
+            if ($dividerCell === '')
+            {
+                return;
+            }
+
+            $alignment = null;
+
+            if ($dividerCell[0] === ':')
+            {
+                $alignment = 'left';
+            }
+
+            if (substr($dividerCell, - 1) === ':')
+            {
+                $alignment = $alignment === 'left' ? 'center' : 'right';
+            }
+
+            $alignments []= $alignment;
+        }
+
+        # ~
+
+        $HeaderElements = array();
+
+        $header = $Block['element']['handler']['argument'];
+
+        $header = trim($header);
+        $header = trim($header, '|');
+
+        $headerCells = explode('|', $header);
+
+        if (count($headerCells) !== count($alignments))
+        {
+            return;
+        }
+
+        foreach ($headerCells as $index => $headerCell)
+        {
+            $headerCell = trim($headerCell);
+
+            $HeaderElement = array(
+                'name' => 'th',
+                'handler' => array(
+                    'function' => 'lineElements',
+                    'argument' => $headerCell,
+                    'destination' => 'elements',
+                )
+            );
+
+            if (isset($alignments[$index]))
+            {
+                $alignment = $alignments[$index];
+
+                $HeaderElement['attributes'] = array(
+                    'style' => "text-align: $alignment;",
+                );
+            }
+
+            $HeaderElements []= $HeaderElement;
+        }
+
+        # ~
+
+        $Block = array(
+            'alignments' => $alignments,
+            'identified' => true,
+            'element' => array(
+                'name' => 'table',
+                'elements' => array(),
+            ),
+        );
+
+        $Block['element']['elements'] []= array(
+            'name' => 'thead',
+        );
+
+        $Block['element']['elements'] []= array(
+            'name' => 'tbody',
+            'elements' => array(),
+        );
+
+        $Block['element']['elements'][0]['elements'] []= array(
+            'name' => 'tr',
+            'elements' => $HeaderElements,
+        );
+
+        return $Block;
+    }
+
+    protected function blockTableContinue($Line, array $Block)
+    {
+        if (isset($Block['interrupted']))
+        {
+            return;
+        }
+
+        if (count($Block['alignments']) === 1 or $Line['text'][0] === '|' or strpos($Line['text'], '|'))
+        {
+            $Elements = array();
+
+            $row = $Line['text'];
+
+            $row = trim($row);
+            $row = trim($row, '|');
+
+            preg_match_all('/(?:(\\\\[|])|[^|`]|`[^`]++`|`)++/', $row, $matches);
+
+            $cells = array_slice($matches[0], 0, count($Block['alignments']));
+
+            foreach ($cells as $index => $cell)
+            {
+                $cell = trim($cell);
+
+                $Element = array(
+                    'name' => 'td',
+                    'handler' => array(
+                        'function' => 'lineElements',
+                        'argument' => $cell,
+                        'destination' => 'elements',
+                    )
+                );
+
+                if (isset($Block['alignments'][$index]))
+                {
+                    $Element['attributes'] = array(
+                        'style' => 'text-align: ' . $Block['alignments'][$index] . ';',
+                    );
+                }
+
+                $Elements []= $Element;
+            }
+
+            $Element = array(
+                'name' => 'tr',
+                'elements' => $Elements,
+            );
+
+            $Block['element']['elements'][1]['elements'] []= $Element;
+
+            return $Block;
+        }
+    }
+
+    #
+    # ~
+    #
+
+    protected function paragraph($Line)
+    {
+        return array(
+            'type' => 'Paragraph',
+            'element' => array(
+                'name' => 'p',
+                'handler' => array(
+                    'function' => 'lineElements',
+                    'argument' => $Line['text'],
+                    'destination' => 'elements',
+                ),
+            ),
+        );
+    }
+
+    protected function paragraphContinue($Line, array $Block)
+    {
+        if (isset($Block['interrupted']))
+        {
+            return;
+        }
+
+        $Block['element']['handler']['argument'] .= "\n".$Line['text'];
+
+        return $Block;
+    }
+
+    #
+    # Inline Elements
+    #
+
+    protected $InlineTypes = array(
+        '!' => array('Image'),
+        '&' => array('SpecialCharacter'),
+        '*' => array('Emphasis'),
+        ':' => array('Url'),
+        '<' => array('UrlTag', 'EmailTag', 'Markup'),
+        '[' => array('Link'),
+        '_' => array('Emphasis'),
+        '`' => array('Code'),
+        '~' => array('Strikethrough'),
+        '\\' => array('EscapeSequence'),
+    );
+
+    # ~
+
+    protected $inlineMarkerList = '!*_&[:<`~\\';
+
+    #
+    # ~
+    #
+
+    public function line($text, $nonNestables = array())
+    {
+        return $this->elements($this->lineElements($text, $nonNestables));
+    }
+
+    protected function lineElements($text, $nonNestables = array())
+    {
+        # standardize line breaks
+        $text = str_replace(array("\r\n", "\r"), "\n", $text);
+
+        $Elements = array();
+
+        $nonNestables = (empty($nonNestables)
+            ? array()
+            : array_combine($nonNestables, $nonNestables)
+        );
+
+        # $excerpt is based on the first occurrence of a marker
+
+        while ($excerpt = strpbrk($text, $this->inlineMarkerList))
+        {
+            $marker = $excerpt[0];
+
+            $markerPosition = strlen($text) - strlen($excerpt);
+
+            $Excerpt = array('text' => $excerpt, 'context' => $text);
+
+            foreach ($this->InlineTypes[$marker] as $inlineType)
+            {
+                # check to see if the current inline type is nestable in the current context
+
+                if (isset($nonNestables[$inlineType]))
+                {
+                    continue;
+                }
+
+                $Inline = $this->{"inline$inlineType"}($Excerpt);
+
+                if ( ! isset($Inline))
+                {
+                    continue;
+                }
+
+                # makes sure that the inline belongs to "our" marker
+
+                if (isset($Inline['position']) and $Inline['position'] > $markerPosition)
+                {
+                    continue;
+                }
+
+                # sets a default inline position
+
+                if ( ! isset($Inline['position']))
+                {
+                    $Inline['position'] = $markerPosition;
+                }
+
+                # cause the new element to 'inherit' our non nestables
+
+
+                $Inline['element']['nonNestables'] = isset($Inline['element']['nonNestables'])
+                    ? array_merge($Inline['element']['nonNestables'], $nonNestables)
+                    : $nonNestables
+                ;
+
+                # the text that comes before the inline
+                $unmarkedText = substr($text, 0, $Inline['position']);
+
+                # compile the unmarked text
+                $InlineText = $this->inlineText($unmarkedText);
+                $Elements[] = $InlineText['element'];
+
+                # compile the inline
+                $Elements[] = $this->extractElement($Inline);
+
+                # remove the examined text
+                $text = substr($text, $Inline['position'] + $Inline['extent']);
+
+                continue 2;
+            }
+
+            # the marker does not belong to an inline
+
+            $unmarkedText = substr($text, 0, $markerPosition + 1);
+
+            $InlineText = $this->inlineText($unmarkedText);
+            $Elements[] = $InlineText['element'];
+
+            $text = substr($text, $markerPosition + 1);
+        }
+
+        $InlineText = $this->inlineText($text);
+        $Elements[] = $InlineText['element'];
+
+        foreach ($Elements as &$Element)
+        {
+            if ( ! isset($Element['autobreak']))
+            {
+                $Element['autobreak'] = false;
+            }
+        }
+
+        return $Elements;
+    }
+
+    #
+    # ~
+    #
+
+    protected function inlineText($text)
+    {
+        $Inline = array(
+            'extent' => strlen($text),
+            'element' => array(),
+        );
+
+        $Inline['element']['elements'] = self::pregReplaceElements(
+            $this->breaksEnabled ? '/[ ]*+\n/' : '/(?:[ ]*+\\\\|[ ]{2,}+)\n/',
+            array(
+                array('name' => 'br'),
+                array('text' => "\n"),
+            ),
+            $text
+        );
+
+        return $Inline;
+    }
+
+    protected function inlineCode($Excerpt)
+    {
+        $marker = $Excerpt['text'][0];
+
+        if (preg_match('/^(['.$marker.']++)[ ]*+(.+?)[ ]*+(?<!['.$marker.'])\1(?!'.$marker.')/s', $Excerpt['text'], $matches))
+        {
+            $text = $matches[2];
+            $text = preg_replace('/[ ]*+\n/', ' ', $text);
+
+            return array(
+                'extent' => strlen($matches[0]),
+                'element' => array(
+                    'name' => 'code',
+                    'text' => $text,
+                ),
+            );
+        }
+    }
+
+    protected function inlineEmailTag($Excerpt)
+    {
+        $hostnameLabel = '[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?';
+
+        $commonMarkEmail = '[a-zA-Z0-9.!#$%&\'*+\/=?^_`{|}~-]++@'
+            . $hostnameLabel . '(?:\.' . $hostnameLabel . ')*';
+
+        if (strpos($Excerpt['text'], '>') !== false
+            and preg_match("/^<((mailto:)?$commonMarkEmail)>/i", $Excerpt['text'], $matches)
+        ){
+            $url = $matches[1];
+
+            if ( ! isset($matches[2]))
+            {
+                $url = "mailto:$url";
+            }
+
+            return array(
+                'extent' => strlen($matches[0]),
+                'element' => array(
+                    'name' => 'a',
+                    'text' => $matches[1],
+                    'attributes' => array(
+                        'href' => $url,
+                    ),
+                ),
+            );
+        }
+    }
+
+    protected function inlineEmphasis($Excerpt)
+    {
+        if ( ! isset($Excerpt['text'][1]))
+        {
+            return;
+        }
+
+        $marker = $Excerpt['text'][0];
+
+        if ($Excerpt['text'][1] === $marker and preg_match($this->StrongRegex[$marker], $Excerpt['text'], $matches))
+        {
+            $emphasis = 'strong';
+        }
+        elseif (preg_match($this->EmRegex[$marker], $Excerpt['text'], $matches))
+        {
+            $emphasis = 'em';
+        }
+        else
+        {
+            return;
+        }
+
+        return array(
+            'extent' => strlen($matches[0]),
+            'element' => array(
+                'name' => $emphasis,
+                'handler' => array(
+                    'function' => 'lineElements',
+                    'argument' => $matches[1],
+                    'destination' => 'elements',
+                )
+            ),
+        );
+    }
+
+    protected function inlineEscapeSequence($Excerpt)
+    {
+        if (isset($Excerpt['text'][1]) and in_array($Excerpt['text'][1], $this->specialCharacters))
+        {
+            return array(
+                'element' => array('rawHtml' => $Excerpt['text'][1]),
+                'extent' => 2,
+            );
+        }
+    }
+
+    protected function inlineImage($Excerpt)
+    {
+        if ( ! isset($Excerpt['text'][1]) or $Excerpt['text'][1] !== '[')
+        {
+            return;
+        }
+
+        $Excerpt['text']= substr($Excerpt['text'], 1);
+
+        $Link = $this->inlineLink($Excerpt);
+
+        if ($Link === null)
+        {
+            return;
+        }
+
+        $Inline = array(
+            'extent' => $Link['extent'] + 1,
+            'element' => array(
+                'name' => 'img',
+                'attributes' => array(
+                    'src' => $Link['element']['attributes']['href'],
+                    'alt' => $Link['element']['handler']['argument'],
+                ),
+                'autobreak' => true,
+            ),
+        );
+
+        $Inline['element']['attributes'] += $Link['element']['attributes'];
+
+        unset($Inline['element']['attributes']['href']);
+
+        return $Inline;
+    }
+
+    protected function inlineLink($Excerpt)
+    {
+        $Element = array(
+            'name' => 'a',
+            'handler' => array(
+                'function' => 'lineElements',
+                'argument' => null,
+                'destination' => 'elements',
+            ),
+            'nonNestables' => array('Url', 'Link'),
+            'attributes' => array(
+                'href' => null,
+                'title' => null,
+            ),
+        );
+
+        $extent = 0;
+
+        $remainder = $Excerpt['text'];
+
+        if (preg_match('/\[((?:[^][]++|(?R))*+)\]/', $remainder, $matches))
+        {
+            $Element['handler']['argument'] = $matches[1];
+
+            $extent += strlen($matches[0]);
+
+            $remainder = substr($remainder, $extent);
+        }
+        else
+        {
+            return;
+        }
+
+        if (preg_match('/^[(]\s*+((?:[^ ()]++|[(][^ )]+[)])++)(?:[ ]+("[^"]*+"|\'[^\']*+\'))?\s*+[)]/', $remainder, $matches))
+        {
+            $Element['attributes']['href'] = $matches[1];
+
+            if (isset($matches[2]))
+            {
+                $Element['attributes']['title'] = substr($matches[2], 1, - 1);
+            }
+
+            $extent += strlen($matches[0]);
+        }
+        else
+        {
+            if (preg_match('/^\s*\[(.*?)\]/', $remainder, $matches))
+            {
+                $definition = strlen($matches[1]) ? $matches[1] : $Element['handler']['argument'];
+                $definition = strtolower($definition);
+
+                $extent += strlen($matches[0]);
+            }
+            else
+            {
+                $definition = strtolower($Element['handler']['argument']);
+            }
+
+            if ( ! isset($this->DefinitionData['Reference'][$definition]))
+            {
+                return;
+            }
+
+            $Definition = $this->DefinitionData['Reference'][$definition];
+
+            $Element['attributes']['href'] = $Definition['url'];
+            $Element['attributes']['title'] = $Definition['title'];
+        }
+
+        return array(
+            'extent' => $extent,
+            'element' => $Element,
+        );
+    }
+
+    protected function inlineMarkup($Excerpt)
+    {
+        if ($this->markupEscaped or $this->safeMode or strpos($Excerpt['text'], '>') === false)
+        {
+            return;
+        }
+
+        if ($Excerpt['text'][1] === '/' and preg_match('/^<\/\w[\w-]*+[ ]*+>/s', $Excerpt['text'], $matches))
+        {
+            return array(
+                'element' => array('rawHtml' => $matches[0]),
+                'extent' => strlen($matches[0]),
+            );
+        }
+
+        if ($Excerpt['text'][1] === '!' and preg_match('/^<!---?[^>-](?:-?+[^-])*-->/s', $Excerpt['text'], $matches))
+        {
+            return array(
+                'element' => array('rawHtml' => $matches[0]),
+                'extent' => strlen($matches[0]),
+            );
+        }
+
+        if ($Excerpt['text'][1] !== ' ' and preg_match('/^<\w[\w-]*+(?:[ ]*+'.$this->regexHtmlAttribute.')*+[ ]*+\/?>/s', $Excerpt['text'], $matches))
+        {
+            return array(
+                'element' => array('rawHtml' => $matches[0]),
+                'extent' => strlen($matches[0]),
+            );
+        }
+    }
+
+    protected function inlineSpecialCharacter($Excerpt)
+    {
+        if (substr($Excerpt['text'], 1, 1) !== ' ' and strpos($Excerpt['text'], ';') !== false
+            and preg_match('/^&(#?+[0-9a-zA-Z]++);/', $Excerpt['text'], $matches)
+        ) {
+            return array(
+                'element' => array('rawHtml' => '&' . $matches[1] . ';'),
+                'extent' => strlen($matches[0]),
+            );
+        }
+
+        return;
+    }
+
+    protected function inlineStrikethrough($Excerpt)
+    {
+        if ( ! isset($Excerpt['text'][1]))
+        {
+            return;
+        }
+
+        if ($Excerpt['text'][1] === '~' and preg_match('/^~~(?=\S)(.+?)(?<=\S)~~/', $Excerpt['text'], $matches))
+        {
+            return array(
+                'extent' => strlen($matches[0]),
+                'element' => array(
+                    'name' => 'del',
+                    'handler' => array(
+                        'function' => 'lineElements',
+                        'argument' => $matches[1],
+                        'destination' => 'elements',
+                    )
+                ),
+            );
+        }
+    }
+
+    protected function inlineUrl($Excerpt)
+    {
+        if ($this->urlsLinked !== true or ! isset($Excerpt['text'][2]) or $Excerpt['text'][2] !== '/')
+        {
+            return;
+        }
+
+        if (strpos($Excerpt['context'], 'http') !== false
+            and preg_match('/\bhttps?+:[\/]{2}[^\s<]+\b\/*+/ui', $Excerpt['context'], $matches, PREG_OFFSET_CAPTURE)
+        ) {
+            $url = $matches[0][0];
+
+            $Inline = array(
+                'extent' => strlen($matches[0][0]),
+                'position' => $matches[0][1],
+                'element' => array(
+                    'name' => 'a',
+                    'text' => $url,
+                    'attributes' => array(
+                        'href' => $url,
+                    ),
+                ),
+            );
+
+            return $Inline;
+        }
+    }
+
+    protected function inlineUrlTag($Excerpt)
+    {
+        if (strpos($Excerpt['text'], '>') !== false and preg_match('/^<(\w++:\/{2}[^ >]++)>/i', $Excerpt['text'], $matches))
+        {
+            $url = $matches[1];
+
+            return array(
+                'extent' => strlen($matches[0]),
+                'element' => array(
+                    'name' => 'a',
+                    'text' => $url,
+                    'attributes' => array(
+                        'href' => $url,
+                    ),
+                ),
+            );
+        }
+    }
+
+    # ~
+
+    protected function unmarkedText($text)
+    {
+        $Inline = $this->inlineText($text);
+        return $this->element($Inline['element']);
+    }
+
+    #
+    # Handlers
+    #
+
+    protected function handle(array $Element)
+    {
+        if (isset($Element['handler']))
+        {
+            if (!isset($Element['nonNestables']))
+            {
+                $Element['nonNestables'] = array();
+            }
+
+            if (is_string($Element['handler']))
+            {
+                $function = $Element['handler'];
+                $argument = $Element['text'];
+                unset($Element['text']);
+                $destination = 'rawHtml';
+            }
+            else
+            {
+                $function = $Element['handler']['function'];
+                $argument = $Element['handler']['argument'];
+                $destination = $Element['handler']['destination'];
+            }
+
+            $Element[$destination] = $this->{$function}($argument, $Element['nonNestables']);
+
+            if ($destination === 'handler')
+            {
+                $Element = $this->handle($Element);
+            }
+
+            unset($Element['handler']);
+        }
+
+        return $Element;
+    }
+
+    protected function handleElementRecursive(array $Element)
+    {
+        return $this->elementApplyRecursive(array($this, 'handle'), $Element);
+    }
+
+    protected function handleElementsRecursive(array $Elements)
+    {
+        return $this->elementsApplyRecursive(array($this, 'handle'), $Elements);
+    }
+
+    protected function elementApplyRecursive($closure, array $Element)
+    {
+        $Element = call_user_func($closure, $Element);
+
+        if (isset($Element['elements']))
+        {
+            $Element['elements'] = $this->elementsApplyRecursive($closure, $Element['elements']);
+        }
+        elseif (isset($Element['element']))
+        {
+            $Element['element'] = $this->elementApplyRecursive($closure, $Element['element']);
+        }
+
+        return $Element;
+    }
+
+    protected function elementApplyRecursiveDepthFirst($closure, array $Element)
+    {
+        if (isset($Element['elements']))
+        {
+            $Element['elements'] = $this->elementsApplyRecursiveDepthFirst($closure, $Element['elements']);
+        }
+        elseif (isset($Element['element']))
+        {
+            $Element['element'] = $this->elementsApplyRecursiveDepthFirst($closure, $Element['element']);
+        }
+
+        $Element = call_user_func($closure, $Element);
+
+        return $Element;
+    }
+
+    protected function elementsApplyRecursive($closure, array $Elements)
+    {
+        foreach ($Elements as &$Element)
+        {
+            $Element = $this->elementApplyRecursive($closure, $Element);
+        }
+
+        return $Elements;
+    }
+
+    protected function elementsApplyRecursiveDepthFirst($closure, array $Elements)
+    {
+        foreach ($Elements as &$Element)
+        {
+            $Element = $this->elementApplyRecursiveDepthFirst($closure, $Element);
+        }
+
+        return $Elements;
+    }
+
+    protected function element(array $Element)
+    {
+        if ($this->safeMode)
+        {
+            $Element = $this->sanitiseElement($Element);
+        }
+
+        # identity map if element has no handler
+        $Element = $this->handle($Element);
+
+        $hasName = isset($Element['name']);
+
+        $markup = '';
+
+        if ($hasName)
+        {
+            $markup .= '<' . $Element['name'];
+
+            if (isset($Element['attributes']))
+            {
+                foreach ($Element['attributes'] as $name => $value)
+                {
+                    if ($value === null)
+                    {
+                        continue;
+                    }
+
+                    $markup .= " $name=\"".self::escape($value).'"';
+                }
+            }
+        }
+
+        $permitRawHtml = false;
+
+        if (isset($Element['text']))
+        {
+            $text = $Element['text'];
+        }
+        // very strongly consider an alternative if you're writing an
+        // extension
+        elseif (isset($Element['rawHtml']))
+        {
+            $text = $Element['rawHtml'];
+
+            $allowRawHtmlInSafeMode = isset($Element['allowRawHtmlInSafeMode']) && $Element['allowRawHtmlInSafeMode'];
+            $permitRawHtml = !$this->safeMode || $allowRawHtmlInSafeMode;
+        }
+
+        $hasContent = isset($text) || isset($Element['element']) || isset($Element['elements']);
+
+        if ($hasContent)
+        {
+            $markup .= $hasName ? '>' : '';
+
+            if (isset($Element['elements']))
+            {
+                $markup .= $this->elements($Element['elements']);
+            }
+            elseif (isset($Element['element']))
+            {
+                $markup .= $this->element($Element['element']);
+            }
+            else
+            {
+                if (!$permitRawHtml)
+                {
+                    $markup .= self::escape($text, true);
+                }
+                else
+                {
+                    $markup .= $text;
+                }
+            }
+
+            $markup .= $hasName ? '</' . $Element['name'] . '>' : '';
+        }
+        elseif ($hasName)
+        {
+            $markup .= ' />';
+        }
+
+        return $markup;
+    }
+
+    protected function elements(array $Elements)
+    {
+        $markup = '';
+
+        $autoBreak = true;
+
+        foreach ($Elements as $Element)
+        {
+            if (empty($Element))
+            {
+                continue;
+            }
+
+            $autoBreakNext = (isset($Element['autobreak'])
+                ? $Element['autobreak'] : isset($Element['name'])
+            );
+            // (autobreak === false) covers both sides of an element
+            $autoBreak = !$autoBreak ? $autoBreak : $autoBreakNext;
+
+            $markup .= ($autoBreak ? "\n" : '') . $this->element($Element);
+            $autoBreak = $autoBreakNext;
+        }
+
+        $markup .= $autoBreak ? "\n" : '';
+
+        return $markup;
+    }
+
+    # ~
+
+    protected function li($lines)
+    {
+        $Elements = $this->linesElements($lines);
+
+        if ( ! in_array('', $lines)
+            and isset($Elements[0]) and isset($Elements[0]['name'])
+            and $Elements[0]['name'] === 'p'
+        ) {
+            unset($Elements[0]['name']);
+        }
+
+        return $Elements;
+    }
+
+    #
+    # AST Convenience
+    #
+
+    /**
+     * Replace occurrences $regexp with $Elements in $text. Return an array of
+     * elements representing the replacement.
+     */
+    protected static function pregReplaceElements($regexp, $Elements, $text)
+    {
+        $newElements = array();
+
+        while (preg_match($regexp, $text, $matches, PREG_OFFSET_CAPTURE))
+        {
+            $offset = $matches[0][1];
+            $before = substr($text, 0, $offset);
+            $after = substr($text, $offset + strlen($matches[0][0]));
+
+            $newElements[] = array('text' => $before);
+
+            foreach ($Elements as $Element)
+            {
+                $newElements[] = $Element;
+            }
+
+            $text = $after;
+        }
+
+        $newElements[] = array('text' => $text);
+
+        return $newElements;
+    }
+
+    #
+    # Deprecated Methods
+    #
+
+    function parse($text)
+    {
+        $markup = $this->text($text);
+
+        return $markup;
+    }
+
+    protected function sanitiseElement(array $Element)
+    {
+        static $goodAttribute = '/^[a-zA-Z0-9][a-zA-Z0-9-_]*+$/';
+        static $safeUrlNameToAtt  = array(
+            'a'   => 'href',
+            'img' => 'src',
+        );
+
+        if ( ! isset($Element['name']))
+        {
+            unset($Element['attributes']);
+            return $Element;
+        }
+
+        if (isset($safeUrlNameToAtt[$Element['name']]))
+        {
+            $Element = $this->filterUnsafeUrlInAttribute($Element, $safeUrlNameToAtt[$Element['name']]);
+        }
+
+        if ( ! empty($Element['attributes']))
+        {
+            foreach ($Element['attributes'] as $att => $val)
+            {
+                # filter out badly parsed attribute
+                if ( ! preg_match($goodAttribute, $att))
+                {
+                    unset($Element['attributes'][$att]);
+                }
+                # dump onevent attribute
+                elseif (self::striAtStart($att, 'on'))
+                {
+                    unset($Element['attributes'][$att]);
+                }
+            }
+        }
+
+        return $Element;
+    }
+
+    protected function filterUnsafeUrlInAttribute(array $Element, $attribute)
+    {
+        foreach ($this->safeLinksWhitelist as $scheme)
+        {
+            if (self::striAtStart($Element['attributes'][$attribute], $scheme))
+            {
+                return $Element;
+            }
+        }
+
+        $Element['attributes'][$attribute] = str_replace(':', '%3A', $Element['attributes'][$attribute]);
+
+        return $Element;
+    }
+
+    #
+    # Static Methods
+    #
+
+    protected static function escape($text, $allowQuotes = false)
+    {
+        return htmlspecialchars($text, $allowQuotes ? ENT_NOQUOTES : ENT_QUOTES, 'UTF-8');
+    }
+
+    protected static function striAtStart($string, $needle)
+    {
+        $len = strlen($needle);
+
+        if ($len > strlen($string))
+        {
+            return false;
+        }
+        else
+        {
+            return strtolower(substr($string, 0, $len)) === strtolower($needle);
+        }
+    }
+
+    static function instance($name = 'default')
+    {
+        if (isset(self::$instances[$name]))
+        {
+            return self::$instances[$name];
+        }
+
+        $instance = new static();
+
+        self::$instances[$name] = $instance;
+
+        return $instance;
+    }
+
+    private static $instances = array();
+
+    #
+    # Fields
+    #
+
+    protected $DefinitionData;
+
+    #
+    # Read-Only
+
+    protected $specialCharacters = array(
+        '\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '>', '#', '+', '-', '.', '!', '|', '~'
+    );
+
+    protected $StrongRegex = array(
+        '*' => '/^[*]{2}((?:\\\\\*|[^*]|[*][^*]*+[*])+?)[*]{2}(?![*])/s',
+        '_' => '/^__((?:\\\\_|[^_]|_[^_]*+_)+?)__(?!_)/us',
+    );
+
+    protected $EmRegex = array(
+        '*' => '/^[*]((?:\\\\\*|[^*]|[*][*][^*]+?[*][*])+?)[*](?![*])/s',
+        '_' => '/^_((?:\\\\_|[^_]|__[^_]*__)+?)_(?!_)\b/us',
+    );
+
+    protected $regexHtmlAttribute = '[a-zA-Z_:][\w:.-]*+(?:\s*+=\s*+(?:[^"\'=<>`\s]+|"[^"]*+"|\'[^\']*+\'))?+';
+
+    protected $voidElements = array(
+        'area', 'base', 'br', 'col', 'command', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source',
+    );
+
+    protected $textLevelElements = array(
+        'a', 'br', 'bdo', 'abbr', 'blink', 'nextid', 'acronym', 'basefont',
+        'b', 'em', 'big', 'cite', 'small', 'spacer', 'listing',
+        'i', 'rp', 'del', 'code',          'strike', 'marquee',
+        'q', 'rt', 'ins', 'font',          'strong',
+        's', 'tt', 'kbd', 'mark',
+        'u', 'xm', 'sub', 'nobr',
+                   'sup', 'ruby',
+                   'var', 'span',
+                   'wbr', 'time',
+    );
+}
+</file>
+
+<file path="quick-sync-plugin/vendor/composer.json">
+{
+    "name": "erusev/parsedown",
+    "description": "Parser for Markdown.",
+    "keywords": ["markdown", "parser"],
+    "homepage": "http://parsedown.org",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Emanuil Rusev",
+            "email": "hello@erusev.com",
+            "homepage": "http://erusev.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.1",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^7.5|^8.5|^9.6"
+    },
+    "autoload": {
+        "psr-0": {"Parsedown": ""}
+    },
+    "autoload-dev": {
+        "psr-0": {
+            "TestParsedown": "test/",
+            "ParsedownTest": "test/",
+            "CommonMarkTest": "test/",
+            "CommonMarkTestWeak": "test/"
+        }
+    }
+}
+</file>
+
+<file path="quick-sync-plugin/vendor/LICENSE.txt">
+The MIT License (MIT)
+
+Copyright (c) 2013-2018 Emanuil Rusev, erusev.com
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</file>
+
+<file path="quick-sync-plugin/vendor/README.md">
+# Parsedown
+
+[![Total Downloads](https://poser.pugx.org/erusev/parsedown/d/total.svg)](https://packagist.org/packages/erusev/parsedown)
+[![Version](https://poser.pugx.org/erusev/parsedown/v/stable.svg)](https://packagist.org/packages/erusev/parsedown)
+[![License](https://poser.pugx.org/erusev/parsedown/license.svg)](https://packagist.org/packages/erusev/parsedown)
+
+Better Markdown Parser in PHP — <a href="https://parsedown.org/demo">demo</a>
+
+## Features
+
+- One file
+- No dependencies
+- [Super fast](http://parsedown.org/speed)
+- Extensible
+- [GitHub flavored](https://github.github.com/gfm)
+- [Tested](http://parsedown.org/tests/) in 5.3 to 7.3
+- [Markdown Extra extension](https://github.com/erusev/parsedown-extra)
+
+## Installation
+
+Install the [composer package]:
+
+    composer require erusev/parsedown
+
+Or download the [latest release] and include `Parsedown.php`
+
+[composer package]: https://packagist.org/packages/erusev/parsedown "The Parsedown package on packagist.org"
+[latest release]: https://github.com/erusev/parsedown/releases/latest "The latest release of Parsedown"
+
+## Example
+
+```php
+$Parsedown = new Parsedown();
+
+echo $Parsedown->text('Hello _Parsedown_!'); # prints: <p>Hello <em>Parsedown</em>!</p>
+```
+
+You can also parse inline markdown only:
+
+```php
+echo $Parsedown->line('Hello _Parsedown_!'); # prints: Hello <em>Parsedown</em>!
+```
+
+More examples in [the wiki](https://github.com/erusev/parsedown/wiki/) and in [this video tutorial](http://youtu.be/wYZBY8DEikI).
+
+## Security
+
+Parsedown is capable of escaping user-input within the HTML that it generates. Additionally Parsedown will apply sanitisation to additional scripting vectors (such as scripting link destinations) that are introduced by the markdown syntax itself.
+
+To tell Parsedown that it is processing untrusted user-input, use the following:
+
+```php
+$Parsedown->setSafeMode(true);
+```
+
+If instead, you wish to allow HTML within untrusted user-input, but still want output to be free from XSS it is recommended that you make use of a HTML sanitiser that allows HTML tags to be whitelisted, like [HTML Purifier](http://htmlpurifier.org/).
+
+In both cases you should strongly consider employing defence-in-depth measures, like [deploying a Content-Security-Policy](https://scotthelme.co.uk/content-security-policy-an-introduction/) (a browser security feature) so that your page is likely to be safe even if an attacker finds a vulnerability in one of the first lines of defence above.
+
+Safe mode does not necessarily yield safe results when using extensions to Parsedown. Extensions should be evaluated on their own to determine their specific safety against XSS.
+
+## Escaping HTML
+
+> WARNING: This method is not safe from XSS!
+
+If you wish to escape HTML in trusted input, you can use the following:
+
+```php
+$Parsedown->setMarkupEscaped(true);
+```
+
+Beware that this still allows users to insert unsafe scripting vectors, ex: `[xss](javascript:alert%281%29)`.
+
+## Questions
+
+**How does Parsedown work?**
+
+It tries to read Markdown like a human. First, it looks at the lines. It’s interested in how the lines start. This helps it recognise blocks. It knows, for example, that if a line starts with a `-` then perhaps it belongs to a list. Once it recognises the blocks, it continues to the content. As it reads, it watches out for special characters. This helps it recognise inline elements (or inlines).
+
+We call this approach "line based". We believe that Parsedown is the first Markdown parser to use it. Since the release of Parsedown, other developers have used the same approach to develop other Markdown parsers in PHP and in other languages.
+
+**Is it compliant with CommonMark?**
+
+It passes most of the CommonMark tests. Most of the tests that don't pass deal with cases that are quite uncommon. Still, as CommonMark matures, compliance should improve.
+
+**Who uses it?**
+
+[Laravel Framework](https://laravel.com/), [Bolt CMS](http://bolt.cm/), [Grav CMS](http://getgrav.org/), [Herbie CMS](http://www.getherbie.org/), [Kirby CMS](http://getkirby.com/), [October CMS](http://octobercms.com/), [Pico CMS](http://picocms.org), [Statamic CMS](http://www.statamic.com/), [phpDocumentor](http://www.phpdoc.org/), [RaspberryPi.org](http://www.raspberrypi.org/), [Symfony Demo](https://github.com/symfony/demo) and [more](https://packagist.org/packages/erusev/parsedown/dependents).
+
+**How can I help?**
+
+Use it, star it, share it and if you feel generous, [donate](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=528P3NZQMP8N2).
+
+**What else should I know?**
+
+I also make [Nota](https://nota.md/) — a notes app designed for local Markdown files.
+</file>
+
+<file path="quick-sync-plugin/core-helpers.php">
+<?php
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+/**
+ * Centralized permission check for all sync endpoints.
+ * Relies on WordPress Application Passwords.
+ */
+function f12_quick_sync_permission_check( WP_REST_Request $request ) {
+    if ( ! current_user_can( 'edit_posts' ) ) {
+        return new WP_Error(
+            'rest_forbidden',
+            __( 'You do not have permission to perform this action.', 'f12-quick-sync' ),
+            [ 'status' => 403 ]
+        );
+    }
+    return true;
+}
+
+/**
+ * Logs messages to the PHP error log if WP_DEBUG and WP_DEBUG_LOG are enabled.
+ */
+function f12_sync_log( $message ) {
+    if ( defined( 'WP_DEBUG' ) && WP_DEBUG === true && defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG === true ) {
+        $prefix = '[Four12 Quick Sync] ';
+        if ( is_array( $message ) || is_object( $message ) ) {
+            error_log( $prefix . print_r( $message, true ) );
+        } else {
+            error_log( $prefix . $message );
+        }
+    }
+}
+
+/**
+ * Retrieves a single post object by its SKU meta field.
+ *
+ * @param string $sku The SKU to search for.
+ * @param string $cpt The post type to search within.
+ * @param string $sku_meta_key The meta key for the SKU.
+ * @return WP_Post|null The found WP_Post object or null if not found.
+ */
+function f12_get_post_by_sku( $sku, $cpt, $sku_meta_key ) {
+    if ( empty( $sku ) || empty($cpt) || empty($sku_meta_key) ) {
+        return null;
+    }
+    $query_args = [
+        'post_type'      => $cpt,
+        'post_status'    => 'any',
+        'posts_per_page' => 1,
+        'meta_query'     => [
+            [
+                'key'   => $sku_meta_key,
+                'value' => $sku,
+            ],
+        ],
+        'fields'         => '', // Return full post objects
+    ];
+    $posts = get_posts( $query_args );
+
+    if ( ! empty( $posts ) ) {
+        if ( count( $posts ) > 1 ) {
+            f12_sync_log( sprintf( 'Warning: Duplicate SKU "%s" detected in CPT "%s". Found %d posts. Returning the first one (ID: %d).', esc_html( $sku ), $cpt, count( $posts ), $posts[0]->ID ) );
+        }
+        return $posts[0];
+    }
+    return null;
+}
+
+/**
+ * Sideloads an image from a URL into the WordPress Media Library.
+ *
+ * @param string $image_url The URL of the image to sideload.
+ * @param int    $post_id   The ID of the post to attach the image to (0 for unattached).
+ * @param string $desc      Description for the image media item (optional).
+ * @return int|WP_Error Attachment ID on success, WP_Error on failure.
+ */
+function f12_sideload_image_from_url( $image_url, $post_id = 0, $desc = null ) {
+    if ( empty( $image_url ) || ! filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
+        return new WP_Error( 'invalid_image_url', __( 'Invalid image URL provided for sideloading.', 'f12-quick-sync' ), $image_url );
+    }
+
+    if ( ! function_exists( 'media_handle_sideload' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+    }
+
+    $tmp = download_url( $image_url );
+    if ( is_wp_error( $tmp ) ) {
+        @unlink( $tmp );
+        return new WP_Error( 'image_download_failed', sprintf( __( 'Could not download image from URL: %s. Error: %s', 'f12-quick-sync' ), esc_url($image_url), $tmp->get_error_message() ), $tmp->get_error_data() );
+    }
+
+    $file_array = [
+        'name'     => basename( strtok( $image_url, '?' ) ),
+        'tmp_name' => $tmp,
+    ];
+
+    if ( is_wp_error( $file_array['tmp_name'] ) ) {
+        @unlink( $file_array['tmp_name'] );
+        return new WP_Error( 'image_temp_store_failed', __( 'Could not store temporary image file after download.', 'f12-quick-sync' ), $file_array['tmp_name'] );
+    }
+
+    $attachment_id = media_handle_sideload( $file_array, $post_id, $desc );
+    
+    @unlink( $file_array['tmp_name'] );
+
+    if ( is_wp_error( $attachment_id ) ) {
+        return new WP_Error( 'image_sideload_failed', sprintf( __( 'Could not sideload image. Error: %s', 'f12-quick-sync' ), $attachment_id->get_error_message() ), $attachment_id->get_error_data() );
+    }
+
+    return (int) $attachment_id;
+}
+
+/**
+ * Returns "now" as DateTime in the site’s timezone.
+ */
+function f12qs_now(): DateTime {
+    return new DateTime( 'now', wp_timezone() ); // site tz
+}
+
+/** Local “MySQL” string – what WP expects for post_date */
+function f12qs_mysql_local( DateTime $dt ): string {
+    return $dt->format( 'Y-m-d H:i:s' );
+}
+
+/** UTC “MySQL” string – what WP expects for post_date_gmt */
+function f12qs_mysql_gmt( DateTime $dt ): string {
+    $utc = clone $dt;
+    $utc->setTimezone( new DateTimeZone( 'UTC' ) );
+    return $utc->format( 'Y-m-d H:i:s' );
+}
+
+/** Pure UTC Unix timestamp – what JetEngine wants when “Save as timestamp” */
+function f12qs_unix_utc( DateTime $dt ): int {
+    $utc = clone $dt;
+    $utc->setTimezone( new DateTimeZone( 'UTC' ) );
+    return $utc->getTimestamp();
+}
+</file>
+
+<file path="quick-sync-plugin/f12-quick-sync.php">
+<?php
+/**
+ * Plugin Name:       Four12 - Quick Sync Framework
+ * Plugin URI:        https://four12global.com
+ * Description:       A modular framework for syncing data from Airtable to WordPress CPTs and Taxonomies.
+ * Version:           2.0.0
+ * Author:            Four12 Global
+ * Author URI:        https://four12global.com
+
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+define( 'F12_QUICK_SYNC_PATH', plugin_dir_path( __FILE__ ) );
+define( 'F12_QUICK_SYNC_URL', plugin_dir_url( __FILE__ ) );
+
+/**
+ * Main plugin class to coordinate all modules.
+ */
+final class F12_Quick_Sync_Manager {
+
+    private static $instance;
+    private $modules = [];
+
+    /**
+     * Singleton instance.
+     */
+    public static function get_instance() {
+        if ( null === self::$instance ) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    /**
+     * Constructor.
+     */
+    private function __construct() {
+        $this->load_dependencies();
+        $this->instantiate_modules();
+        add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
+    }
+
+    /**
+     * Load all required files.
+     */
+    private function load_dependencies() {
+        require_once F12_QUICK_SYNC_PATH . 'core-helpers.php';
+        require_once F12_QUICK_SYNC_PATH . 'module-base.php';
+        
+        // Load Parsedown library if it exists
+        if ( file_exists( F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php' ) ) {
+            require_once F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php';
+        }
+
+        // Autoload all modules from the /modules/ directory
+        foreach ( glob( F12_QUICK_SYNC_PATH . 'modules/*.php' ) as $module_file ) {
+            require_once $module_file;
+        }
+    }
+
+    /**
+     * Find and instantiate all declared module classes.
+     */
+    private function instantiate_modules() {
+        $declared_classes = get_declared_classes();
+        foreach ( $declared_classes as $class_name ) {
+            if ( substr($class_name, -12) === '_Sync_Module' && class_exists($class_name) ) {
+                $this->modules[ $class_name ] = new $class_name();
+            }
+        }
+    }
+
+    /**
+     * Register REST API routes for each loaded module.
+     */
+    public function register_rest_routes() {
+        foreach ( $this->modules as $module ) {
+            if ( ! method_exists($module, 'get_endpoint_slug') || ! method_exists($module, 'handle_sync_request') ) {
+                continue;
+            }
+
+            register_rest_route(
+                'four12/v1',
+                '/' . $module->get_endpoint_slug(),
+                [
+                    'methods'             => WP_REST_Server::CREATABLE, // 'POST'
+                    'callback'            => [ $module, 'handle_sync_request' ],
+                    'permission_callback' => 'f12_quick_sync_permission_check',
+                    'args'                => $module->get_rest_api_args(),
+                ]
+            );
+             f12_sync_log( 'Registered endpoint: /four12/v1/' . $module->get_endpoint_slug() );
+        }
+    }
+}
+
+// Initialize the plugin manager.
+F12_Quick_Sync_Manager::get_instance();
+</file>
+
+<file path="quick-sync-plugin/module-base.php">
+<?php
+use AIOSEO\Plugin\Common\Models\Post as AioseoPost;
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+abstract class F12_Quick_Sync_Module_Base {
+
+    // --- Configuration to be set by child modules ---
+    protected $cpt;
+    protected $endpoint_slug;
+    protected $sku_meta_key;
+    protected $core_field_map = [];
+    protected $taxonomy_map = [];
+    protected $image_meta_map = [];
+    protected $post_content_key;
+    protected $allowed_post_statuses = ['publish', 'draft', 'trash', 'private'];
+    protected bool $duplicate_post_content_to_meta = false;
+
+    /**
+     * Constructor to set up module-specific hooks.
+     */
+    public function __construct() {
+        // Make JetEngine honour the site timezone for every datetime meta.
+        add_filter( 'jet-engine/datetime/use-wp-date', '__return_true', 10, 2 );
+        $this->init();
+    }
+
+    /**
+     * Abstract init method for child classes to set properties and add hooks.
+     */
+    abstract protected function init();
+
+    /**
+     * Get the endpoint slug for the router.
+     * @return string
+     */
+    public function get_endpoint_slug() {
+        return $this->endpoint_slug;
+    }
+
+    /**
+     * Define the expected REST API arguments.
+     * @return array
+     */
+    public function get_rest_api_args() {
+        return [
+            'sku' => [
+                'type'              => 'string',
+                'required'          => true,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => esc_html__( 'Unique identifier for the item. Used for de-duplication.', 'f12-quick-sync' ),
+            ],
+            'fields' => [
+                'type'              => 'object',
+                'required'          => true,
+                'description'       => esc_html__( 'Object containing item data fields to be synced.', 'f12-quick-sync' ),
+            ],
+            'airtableRecordId' => [
+                'type'              => 'string',
+                'required'          => false,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => esc_html__( 'Optional Airtable Record ID for logging and reference.', 'f12-quick-sync' ),
+            ],
+            'wp_id' => [
+                'type'              => 'integer',
+                'required'          => false,
+                'sanitize_callback' => 'absint',
+                'description'       => esc_html__( 'Optional WordPress Post/Term ID. If provided, used for a fast-path update.', 'f12-quick-sync' ),
+            ],
+        ];
+    }
+
+    /**
+     * The main handler for the REST request.
+     * This is the refactored logic from the original plugin.
+     */
+    public function handle_sync_request( WP_REST_Request $request ) {
+        $json_params = $request->get_json_params();
+    
+        if ( null === $json_params ) {
+            return new WP_Error( 'f12_bad_json', __( 'Invalid JSON body or Content-Type not application/json.', 'f12-quick-sync' ), [ 'status' => 400 ] );
+        }
+    
+        $sku                 = isset( $json_params['sku'] ) ? sanitize_text_field( $json_params['sku'] ) : null;
+        $fields_from_payload = isset( $json_params['fields'] ) ? $json_params['fields'] : null;
+        $wp_id               = isset( $json_params['wp_id'] ) ? absint( $json_params['wp_id'] ) : 0;
+        
+        if ( empty( $sku ) ) {
+            return new WP_Error( 'f12_missing_sku', __( 'Required top-level "sku" parameter is missing from JSON body.', 'f12-quick-sync' ), [ 'status' => 400 ] );
+        }
+        if ( empty( $fields_from_payload ) || ! is_array( $fields_from_payload ) ) {
+            return new WP_Error( 'f12_invalid_fields', __( 'Required "fields" parameter is missing or not an object in JSON body.', 'f12-quick-sync' ), [ 'status' => 400 ] );
+        }
+        
+        $payload = $fields_from_payload; // No more apply_filters here
+        $changed_summary = [ 'core' => [], 'meta' => [], 'taxonomy' => [], 'permalink' => [], 'special' => [] ];
+    
+        
+        // Leave last_synced untouched; JetEngine will translate this UTC timestamp to local time when displaying.
+
+        // ---- Find existing post ----
+        $post = null;
+        $mode = null;
+    
+        if ( $wp_id > 0 ) {
+            $potential_post = get_post( $wp_id );
+            if ( $potential_post && $potential_post->post_type === $this->cpt ) {
+                $existing_sku = get_post_meta( $potential_post->ID, $this->sku_meta_key, true );
+                // This is the key change: Allow a match if the existing SKU is empty (so we can claim it) or if the SKUs match.
+                if ( empty($existing_sku) || $existing_sku === $sku ) {
+                    $post = $potential_post;
+                    $mode = 'update';
+                    if (empty($existing_sku)) {
+                        f12_sync_log( sprintf( 'Post found via wp_id %d and CLAIMED for SKU %s (was previously empty).', $post->ID, esc_html( $sku ) ) );
+                    } else {
+                        f12_sync_log( sprintf( 'Post found via fast-path wp_id: %d for CPT %s (SKU: %s)', $post->ID, $this->cpt, esc_html( $sku ) ) );
+                    }
+                } else {
+                     f12_sync_log( sprintf( 'wp_id %d provided, but its SKU ("%s") does not match payload SKU ("%s"). Falling back to SKU lookup.', $wp_id, esc_html($existing_sku), esc_html( $sku ) ) );
+                }
+            } else {
+                f12_sync_log( sprintf( 'wp_id %d provided, but post not found or is wrong CPT. Falling back to SKU lookup.', $wp_id ) );
+            }
+        }
+    
+        if ( ! $mode ) {
+            $post = f12_get_post_by_sku( $sku, $this->cpt, $this->sku_meta_key );
+            $mode = $post ? 'update' : 'create';
+        }
+    
+        $post_id = ( 'update' === $mode && $post ) ? $post->ID : 0;
+        
+        // ---- Process and Save ----
+        $post_data = $this->_prepare_core_data( $payload, $sku, $changed_summary );
+        
+        $post_id_after_save = $this->_save_core_post( $post_id, $mode, $post_data, $sku );
+    
+        if ( is_wp_error( $post_id_after_save ) ) {
+            f12_sync_log( 'Error saving post (core fields) for SKU: ' . esc_html( $sku ) . '. Mode: ' . $mode . '. Error: ' . $post_id_after_save->get_error_message() );
+            return $post_id_after_save;
+        }
+        $post_id = (int) $post_id_after_save;
+    
+        // Process remaining fields
+        $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
+        $this->_process_taxonomies( $post_id, $payload, $sku, $changed_summary );
+        $this->_process_special_fields( $post_id, $payload, $sku, $changed_summary ); // This now handles AIOSEO universally
+        $this->_process_meta_fields( $post_id, $payload, $sku, $changed_summary );
+    
+        // ---- Prepare and return response ----
+        $action = ( 'create' === $mode ) ? 'created' : 'updated';
+        // Retrieve the post title for the response
+        $post_obj = get_post( $post_id );
+        $post_title = $post_obj ? $post_obj->post_title : '';
+        $response_data = [
+            'post_id'    => $post_id,
+            'action'     => $action,
+            'sku'        => $sku,
+            'post_title' => $post_title,
+            'message'    => sprintf(
+                "%s '%s' successfully %s.",
+                ucfirst( $this->cpt ),        // “Series”
+                esc_html( $post_title ),      // “Regional Equip Gauteng”
+                $action                       // “updated” (or “created” etc)
+            ),
+        ];
+    
+        return rest_ensure_response( $response_data );
+    }
+
+
+    /**
+     * Prepares the $post_data array for wp_insert/update_post.
+     */
+    protected function _prepare_core_data( &$payload, $sku, &$changed_summary ) {
+        $post_data = [ 'post_type' => $this->cpt ];
+        $post_data['post_status'] = 'publish'; // Default
+
+        // Standard core fields
+        foreach ( $this->core_field_map as $payload_key => $wp_post_field_key ) {
+            if ( array_key_exists( $payload_key, $payload ) ) {
+
+                // Short-circuit the native slug update if a custom permalink is being used.
+                if ( $wp_post_field_key === 'post_name' && isset($payload['custom_permalink_uri']) && !empty(trim($payload['custom_permalink_uri'])) && class_exists('Permalink_Manager_URI_Functions') ) {
+                    f12_sync_log(sprintf('Core Field Processing: Skipping direct update of native "post_name" because "custom_permalink_uri" is provided for Permalink Manager. (SKU: %s)', esc_html($sku)));
+                    if (!in_array('custom_permalink_uri', $changed_summary['permalink'])) {
+                        $changed_summary['permalink'][] = 'custom_permalink_uri'; // Log permalink change intent
+                    }
+                    unset( $payload[ $payload_key ] ); // Remove post_name from further processing
+                    continue; // Skip to the next field in the loop
+                }
+
+                $value = $payload[ $payload_key ];
+
+                if ( 'post_date' === $wp_post_field_key && ! empty( $value ) ) {
+                    // --- parse incoming string ---------------------------------------------
+                    $dt_local = new DateTime( $value );          // honours the “Z” (UTC)
+                    // 🚨 ALWAYS convert to site timezone – no conditions
+                    $dt_local->setTimezone( wp_timezone() );     // now site time
+
+                    $post_data['post_date']      = f12qs_mysql_local( $dt_local );
+                    $post_data['post_date_gmt']  = f12qs_mysql_gmt(   $dt_local );
+                } elseif ( 'post_status' === $wp_post_field_key ) {
+                    if ( !empty($value) && is_string($value) && in_array( strtolower( $value ), $this->allowed_post_statuses, true ) ) {
+                        $post_data[ $wp_post_field_key ] = strtolower( $value );
+                    }
+                } else {
+                    $post_data[ $wp_post_field_key ] = $value;
+                }
+                
+                if ( ! in_array( $payload_key, $changed_summary['core'] ) ) $changed_summary['core'][] = $payload_key;
+                unset( $payload[ $payload_key ] );
+            }
+        }
+        
+        // Post content
+        if ( $this->post_content_key && array_key_exists( $this->post_content_key, $payload ) ) {
+            $value = $payload[ $this->post_content_key ];
+            $post_data['post_content'] = $value;
+
+            if ( ! in_array( 'post_content (from ' . $this->post_content_key . ')', $changed_summary['special'] ) ) {
+                $changed_summary['special'][] = 'post_content (from ' . $this->post_content_key . ')';
+            }
+
+            // Keep or discard the key depending on module preference
+            if ( ! $this->duplicate_post_content_to_meta ) {
+                unset( $payload[ $this->post_content_key ] );
+            }
+        }
+
+        // If neither post_date nor post_date_gmt set above, default to now.
+        if ( empty( $post_data['post_date'] ) ) {
+            $now_local = f12qs_now();
+            $post_data['post_date']     = f12qs_mysql_local( $now_local );
+            $post_data['post_date_gmt'] = f12qs_mysql_gmt(   $now_local );
+        }
+
+        return $post_data;
+    }
+
+    /**
+     * Saves the core post data.
+     */
+    protected function _save_core_post( $post_id, $mode, $post_data, $sku ) {
+        if ( 'create' === $mode ) {
+            return wp_insert_post( $post_data, true );
+        } else {
+            $post_data['ID'] = $post_id;
+            return wp_update_post( $post_data, true );
+        }
+    }
+
+    /**
+     * Handles custom permalink integration.
+     */
+    protected function _process_permalink( $post_id, &$payload, $sku, &$changed_summary ) {
+        if ( ! class_exists('Permalink_Manager_URI_Functions') || ! isset($payload['custom_permalink_uri']) ) {
+            return;
+        }
+
+        $custom_uri = trim($payload['custom_permalink_uri']);
+        if ( !empty($custom_uri) ) {
+            $new_uri = ltrim($custom_uri, '/');
+            if (substr($new_uri, -1) !== '/') $new_uri .= '/';
+
+            if ($new_uri !== '/') {
+                $save_result = Permalink_Manager_URI_Functions::save_single_uri($post_id, $new_uri, false, true);
+                if ($save_result === true || $save_result === 1) {
+                    f12_sync_log(sprintf('Permalink Manager: Success for post ID %d, URI "%s" (SKU: %s)', $post_id, esc_html($new_uri), esc_html($sku)));
+                    if (!in_array('custom_permalink_uri', $changed_summary['permalink'])) $changed_summary['permalink'][] = 'custom_permalink_uri';
+                }
+            }
+        }
+        unset($payload['custom_permalink_uri']);
+
+        // Prevent native post_name from being processed if a custom permalink was handled.
+        if (isset($this->core_field_map['post_name'])) {
+            unset($payload['post_name']);
+        }
+    }
+
+    /**
+     * Handles all taxonomy assignments.
+     */
+    protected function _process_taxonomies( $post_id, &$payload, $sku, &$changed_summary ) {
+        foreach ( $this->taxonomy_map as $payload_key => $taxonomy_slug ) {
+            if ( ! array_key_exists( $payload_key, $payload ) ) continue;
+
+            $raw_term_values = $payload[ $payload_key ];
+            
+            if ( $raw_term_values === null || $raw_term_values === '' ) {
+                wp_set_post_terms( $post_id, [], $taxonomy_slug, false );
+                if ( ! in_array( $payload_key, $changed_summary['taxonomy'] ) ) $changed_summary['taxonomy'][] = $payload_key;
+                unset( $payload[ $payload_key ] );
+                continue;
+            }
+
+            // ... [Identical hierarchy logic from original file] ...
+            $term_input_sets = [];
+            $temp_term_list = is_array($raw_term_values) ? array_map('strval', $raw_term_values) : array_map('trim', explode(',', $raw_term_values));
+
+            foreach( $temp_term_list as $term_entry_str ) {
+                $term_entry_str = trim($term_entry_str);
+                if (empty($term_entry_str)) continue;
+                if (strpos($term_entry_str, '>') !== false) {
+                    $term_input_sets[] = array_map('trim', explode('>', $term_entry_str));
+                } else {
+                    $term_input_sets[] = [$term_entry_str];
+                }
+            }
+
+            $term_ids_to_set = [];
+            if ( ! empty( $term_input_sets ) ) {
+                foreach ($term_input_sets as $hierarchical_term_parts) {
+                    $parent_id = 0;
+                    foreach ($hierarchical_term_parts as $term_part_name) {
+                        $term = term_exists( $term_part_name, $taxonomy_slug, $parent_id );
+                        if ( ! $term ) $term = term_exists( sanitize_title( $term_part_name ), $taxonomy_slug, $parent_id );
+                        
+                        $term_id = 0;
+                        if ( ! $term ) {
+                            $insert_args = ($parent_id > 0 && is_taxonomy_hierarchical($taxonomy_slug)) ? ['parent' => $parent_id] : [];
+                            $new_term = wp_insert_term( $term_part_name, $taxonomy_slug, $insert_args );
+                            if ( is_wp_error( $new_term ) ) {
+                                f12_sync_log( 'Could not create term "' . $term_part_name . '": ' . $new_term->get_error_message() );
+                                break; 
+                            }
+                            $term_id = (int) $new_term['term_id'];
+                        } else {
+                            $term_id = (int) $term['term_id'];
+                        }
+                        
+                        if ($term_id > 0) {
+                            $term_ids_to_set[] = $term_id;
+                            $parent_id = $term_id;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $term_ids_to_set = array_unique(array_filter($term_ids_to_set));
+            $term_result = wp_set_post_terms( $post_id, $term_ids_to_set, $taxonomy_slug, false );
+
+            if (!is_wp_error($term_result)) {
+                 if ( ! in_array( $payload_key, $changed_summary['taxonomy'] ) ) $changed_summary['taxonomy'][] = $payload_key;
+            }
+            unset( $payload[ $payload_key ] );
+        }
+    }
+    
+    /**
+     * Processes special, universally handled fields like AIOSEO.
+     */
+    protected function _process_special_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // --- AIOSEO Description Handling (Universal) ---
+        // Automatically process if the conventional payload key exists.
+        if ( isset( $payload['_aioseo_description'] ) ) {
+            
+            $raw_desc = sanitize_textarea_field( $payload['_aioseo_description'] );
+            
+            if ( function_exists( 'aioseo' ) && class_exists( AioseoPost::class ) ) {
+                try {
+                    $seoPost = AioseoPost::getPost( (int) $post_id ) ?: AioseoPost::create( [ 'post_id' => (int) $post_id ] );
+                    $seoPost->description = $raw_desc;
+                    method_exists( $seoPost, 'save' ) ? $seoPost->save() : $seoPost->savePost();
+                    f12_sync_log( "AIOSEO: description saved via model for post {$post_id}" );
+                } catch ( Throwable $e ) {
+                    f12_sync_log( 'AIOSEO ERROR: ' . $e->getMessage() . ' - falling back to update_post_meta' );
+                    update_post_meta( $post_id, '_aioseo_description', $raw_desc );
+                }
+            } else {
+                // Fallback if AIOSEO is not active
+                update_post_meta( $post_id, '_aioseo_description', $raw_desc );
+            }
+
+            if ( ! in_array( '_aioseo_description (AIOSEO)', $changed_summary['special'] ) ) {
+                $changed_summary['special'][] = '_aioseo_description (AIOSEO)';
+            }
+            // Unset the key so it's not processed again in the generic meta loop.
+            unset( $payload['_aioseo_description'] );
+        }
+    }
+
+    /**
+     * Hook for child modules to perform special meta field processing.
+     * This method is called before the generic meta loop.
+     * Child classes should unset any keys they handle to prevent double processing.
+     */
+    protected function _process_special_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // Child modules can override this.
+    }
+
+    /**
+     * Handles all remaining fields as post meta, including image sideloading.
+     */
+    protected function _process_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // Always ensure SKU meta is correct
+        if ( get_post_meta( $post_id, $this->sku_meta_key, true ) !== $sku ) {
+            update_post_meta( $post_id, $this->sku_meta_key, $sku );
+        }
+        unset($payload[$this->sku_meta_key]);
+
+        // --- Call the hook for special handling ---
+        $this->_process_special_meta_fields( $post_id, $payload, $sku, $changed_summary );
+        // ---------------------------------------------
+
+        foreach ( $payload as $meta_key => $meta_value ) {
+            $meta_key_sanitized = sanitize_key( $meta_key );
+            $processed_meta_value = $meta_value;
+
+            // JetEngine last_synced field: always use UTC timestamp
+            if ($meta_key_sanitized === 'last_synced') {
+                if ($meta_value instanceof DateTime) {
+                    $processed_meta_value = f12qs_unix_utc($meta_value);
+                } elseif (is_numeric($meta_value)) {
+                    // Assume already a timestamp, but cast to int
+                    $processed_meta_value = (int)$meta_value;
+                } elseif (is_string($meta_value)) {
+                    // Try to parse as date string
+                    $dt = new DateTime($meta_value, wp_timezone());
+                    $processed_meta_value = f12qs_unix_utc($dt);
+                }
+            }
+
+            // Image handling
+            if ( in_array( $meta_key, $this->image_meta_map, true ) ) {
+                if ( is_string( $meta_value ) && filter_var( $meta_value, FILTER_VALIDATE_URL ) ) {
+                    $image_desc = get_the_title( $post_id ) ?: $sku;
+                    $attachment_id = f12_sideload_image_from_url( $meta_value, $post_id, $image_desc );
+                    if ( ! is_wp_error( $attachment_id ) && $attachment_id > 0 ) {
+                        $processed_meta_value = $attachment_id;
+                        f12_sync_log(sprintf('Image Sideload Success for "%s". New ID: %d (SKU: %s)', $meta_key, $attachment_id, esc_html($sku)));
+                    } else {
+                        f12_sync_log(sprintf('Image Sideload Failed for "%s". Error: %s (SKU: %s)', $meta_key, is_wp_error($attachment_id) ? $attachment_id->get_error_message() : 'Unknown', esc_html($sku)));
+                        continue; // Skip updating meta on failure
+                    }
+                }
+            }
+
+            // Featured Image special handling
+            if ($meta_key_sanitized === '_thumbnail_id') {
+                if ( !empty($processed_meta_value) && (int) $processed_meta_value > 0 ) {
+                    set_post_thumbnail( $post_id, (int) $processed_meta_value );
+                } else {
+                    delete_post_thumbnail($post_id);
+                }
+            } else { // All other meta
+                if ( $meta_value === null ) {
+                    delete_post_meta($post_id, $meta_key_sanitized);
+                } else {
+                    update_post_meta( $post_id, $meta_key_sanitized, $processed_meta_value );
+                }
+            }
+             if ( ! in_array( $meta_key, $changed_summary['meta'] ) ) $changed_summary['meta'][] = $meta_key;
+        }
+    }
+}
+</file>
+
+<file path="quick-sync-plugin/README.md">
+Four12 Quick Sync Framework
+
+Version: 2.1.0
+Author: Four12 Global
+Description: A modular, configuration-driven framework for syncing data from Airtable to WordPress Custom Post Types (CPTs) and Taxonomies via a secure REST API.
+
+This plugin provides a robust foundation for creating multiple "sync" endpoints, each tailored to a specific post type or taxonomy, without duplicating core logic. It's designed for stability, scalability, and rapid development of new data pipelines.
+
+----
+
+f12-quick-sync/
+│
+├─ f12-quick-sync.php        ← Main bootstrap & router (≈150 lines)
+├─ core-helpers.php         ← Re-usable functions (≈200 lines total)
+├─ module-base.php           ← Abstract class every module extends (≈120 lines)
+└─ modules/
+     ├─ series.php           ← One class, mapping lives here
+     └─ author.php           ← Ditto (add more modules as you grow)
+vendor/
+    └─ parsedown/Parsedown.php   ← Left untouched
+
+----
+
+Table of Contents
+
+Core Philosophy
+
+How It Works: The End-to-End Flow
+
+File Structure
+
+Key Features & Universal Logic
+
+Payload Anatomy
+
+How to Add a New CPT Sync Module
+
+How to Add a New Taxonomy Sync Module
+
+Core Helpers & Shared Logic
+
+Third-Party Integrations
+
+Authentication
+
+Logging & Debugging
+
+Best Practices & Performance
+
+1. Core Philosophy
+
+Configuration over Code: Define what to sync in a module's configuration arrays, not by writing new processing logic.
+
+Don't Repeat Yourself (DRY): All shared logic (post lookup, image sideloading, universal business rules) lives in central files and is inherited or used by all modules.
+
+Modular & Isolated: Each sync endpoint is its own class in the /modules directory. A bug in one module won't break another.
+
+Idempotent & Robust: Running the same sync multiple times will not create duplicate data or cause errors. The system gracefully handles creates, updates, and retries.
+
+2. How It Works: The End-to-End Flow
+
+This plugin is the server-side component of the "Quick Sync" workflow.
+
+Generated mermaid
+flowchart TD
+    subgraph Airtable Automation
+        A[Button Click / Trigger] --> B(Airtable Media Script);
+        B -- "sends image, gets back wp_id" --> C(Airtable QuickSync Script);
+    end
+
+    C -- "POSTs JSON Payload" --> D[WordPress REST API];
+
+    subgraph WordPress (f12-quick-sync plugin)
+        D -- "/four12/v1/series-sync" --> E{Plugin Router};
+        E -- "routes to correct module" --> F[Series or Author Module];
+        F -- "processes data using..." --> G[Base Class Logic & Core Helpers];
+        G -- "creates/updates..." --> H[WP Post or Term];
+    end
+
+    H -- "sends back {post_id, action}" --> C;
+
+
+Airtable Scripts prepare a JSON payload, first syncing images to get Media IDs, then packaging the full record data.
+
+The payload is POSTed to a specific endpoint (e.g., /wp-json/four12/v1/series-sync).
+
+The Plugin Router (f12-quick-sync.php) identifies the correct module based on the endpoint slug.
+
+The Module (e.g., modules/series.php) provides the configuration.
+
+The Base Class or Module Logic executes the sync, using shared helpers for common tasks.
+
+A response is sent back to Airtable confirming the post_id or term_id and action (created or updated).
+
+3. File Structure
+Generated code
+f12-quick-sync/
+│
+├─ f12-quick-sync.php        ← Main plugin file, bootstrapper, and router.
+├─ core-helpers.php          ← Reusable, global functions (logging, sideloading).
+├─ module-base.php           ← The abstract base class with all shared CPT sync logic.
+└─ modules/
+     ├─ series.php           ← Example CPT module. **(This is what you copy for CPTs)**
+     └─ author-speaker.php   ← Example Taxonomy module. **(This is what you copy for Taxonomies)**
+└─ vendor/
+     └─ parsedown/
+          └─ Parsedown.php    ← Third-party library for Markdown parsing.
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+IGNORE_WHEN_COPYING_END
+4. Key Features & Universal Logic
+
+This framework handles complex tasks automatically for you.
+
+Features for All Modules
+
+SKU-based De-duplication: The primary sku field is used to find existing items to prevent duplicates.
+
+wp_id Fast-Path: An optional wp_id in the payload allows the system to bypass the SKU lookup for faster updates.
+
+Secure Authentication: Relies on WordPress Application Passwords for secure API access.
+
+Automatic Logic for CPT Modules (from module-base.php)
+
+Any module extending F12_Quick_Sync_Module_Base gets this for free:
+
+Timezone Normalization: Any payload containing a last_synced key will have its value automatically adjusted to GMT+2 (Johannesburg time).
+
+AIOSEO Integration: If a payload contains the _aioseo_description key, it will be automatically and safely saved using AIOSEO's models.
+
+Dynamic Taxonomy Handling: Automatically creates and assigns terms from arrays, comma-separated strings, or hierarchical strings (Parent > Child).
+
+Image Sideloading: If an image meta key (defined in the module's $image_meta_map) contains a URL, the plugin downloads it, adds it to the Media Library, and saves the attachment ID.
+
+Permalink Manager Integration: Safely handles custom_permalink_uri without conflicting with the native slug.
+
+Features for Taxonomy Modules (from author-speaker.php blueprint)
+
+Robust Term De-duplication: Uses a wp_id -> SKU -> slug lookup chain.
+
+Safe Meta Whitelisting: Prevents database pollution by only saving meta keys defined in an $allowed_meta_keys array. Unknown keys are logged and ignored.
+
+Safe Meta Deletion: Only deletes a meta field if the payload explicitly sends a null value for that key, preventing accidental data loss.
+
+Markdown Support: Easily integrates Parsedown to convert rich text fields to safe HTML.
+
+5. Payload Anatomy
+
+The plugin expects a specific JSON structure from Airtable.
+
+Generated json
+{
+  "airtableRecordId": "recXXXXXXXXXXXXXX",
+  "sku": "S0123",             // Unique identifier (required)
+  "wp_id": 1234,              // WordPress Post/Term ID (optional, for fast updates)
+  "fields": {
+    /* --- Core Fields --- */
+    "post_title": "My Series Title",      // For CPTs
+    "name": "My Author Name",             // For Taxonomies
+    "post_status": "publish",
+
+    /* --- Universal Framework Keys with Special Handling --- */
+    "last_synced": 1672531200,            // Becomes GMT+2 automatically for CPTs
+    "_aioseo_description": "My SEO desc.", // Saved via AIOSEO automatically for CPTs
+    "custom_permalink_uri": "path/to/my-series/", // Handled by Permalink Manager for CPTs
+
+    /* --- Image Fields --- */
+    "_thumbnail_id": 567,                 // WP Media ID (preferred)
+    "banner-image": "https://.../img.jpg",    // URL (fallback, will be sideloaded)
+    
+    /* --- Taxonomy Fields --- */
+    "topics": ["Topic A", "Topic B"],
+    "series-categories": "Parent > Child"
+  }
+}
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Json
+IGNORE_WHEN_COPYING_END
+6. How to Add a New CPT Sync Module
+
+Creating a new endpoint for a CPT (e.g., "Events") is incredibly simple.
+
+Step 1: Create the Module File
+Duplicate modules/series.php and rename it to modules/events.php.
+
+Step 2: Edit the Class
+Open modules/events.php and change the class name and configuration properties.
+
+Generated php
+<?php
+// modules/events.php
+
+class F12_Events_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    protected function init() {
+        // --- 1. Core Configuration ---
+        $this->cpt = 'event';
+        $this->endpoint_slug = 'event-sync';
+        $this->sku_meta_key = 'event_sku';
+
+        // --- 2. Field Mapping ---
+        $this->core_field_map = [
+            'event_title'   => 'post_title',
+            'event_slug'    => 'post_name',
+        ];
+
+        $this->taxonomy_map = [
+            'event_category_from_airtable' => 'event-categories',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+            'event_banner_image',
+        ];
+
+        $this->post_content_key = 'event_description'; 
+    }
+}
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+PHP
+IGNORE_WHEN_COPYING_END
+
+Step 3: Done!
+The framework's router will automatically detect the new class and register the endpoint /wp-json/four12/v1/event-sync. It will automatically inherit the universal timezone and AIOSEO handling.
+
+7. How to Add a New Taxonomy Sync Module
+
+Creating an endpoint for a new taxonomy (e.g., "Topics") is just as easy.
+
+Step 1: Create the Module File
+Duplicate modules/author-speaker.php and rename it to modules/topics.php.
+
+Step 2: Edit the Class
+Open modules/topics.php and change the class name and configuration properties.
+
+Generated php
+<?php
+// modules/topics.php
+
+class F12_Topics_Sync_Module {
+    // --- 1. Configuration ---
+    private $endpoint_slug = 'topic-sync';
+    private $taxonomy = 'topics';
+    private $sku_meta_key = 'topic_sku';
+
+    // --- 2. Whitelist your allowed meta keys ---
+    private $allowed_meta_keys = [
+        'topic_icon_class',
+        'is_featured',
+    ];
+
+    // The rest of the file (handle_sync_request, find_existing_term, etc.)
+    // contains the logic. You may need to tweak the Parsedown logic if the
+    // topic description field has a different name.
+}
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+PHP
+IGNORE_WHEN_COPYING_END
+
+Step 3: Done!
+The router will register the new /wp-json/four12/v1/topic-sync endpoint.
+
+8. Core Helpers & Shared Logic
+
+module-base.php: The engine for CPTs. It handles the entire sync lifecycle, including the automatic universal logic.
+
+core-helpers.php: Provides standalone functions available to any module:
+
+f12_sync_log(): Conditional logging.
+
+f12_sideload_image_from_url(): Robust image sideloading.
+
+f12_get_post_by_sku(): Standardized post lookup.
+
+f12_quick_sync_permission_check(): Centralized auth check.
+
+9. Third-Party Integrations
+
+AIOSEO / Permalink Manager / JetEngine: Handled automatically by the CPT base class.
+
+Parsedown: To use Markdown in a taxonomy module, ensure Parsedown.php is in the vendor folder and call it within your module's handler, as seen in author-speaker.php.
+
+10. Authentication
+
+Authentication is handled via WordPress Application Passwords.
+
+In the WordPress admin, go to Users > Your Profile.
+
+Scroll down to "Application Passwords".
+
+Create a new password (e.g., "Airtable Sync").
+
+Copy the generated password (e.g., abcd efgh ijkl mnop qrst uvwx).
+
+In Airtable, create a Secret named API-SYNC and store your credentials in the format username:password (e.g., my_wp_admin_user:abcd efgh ijkl mnop qrst uvwx).
+
+11. Logging & Debugging
+
+Enable WP_DEBUG: To see detailed logs, set WP_DEBUG and WP_DEBUG_LOG to true in your wp-config.php.
+
+Log Location: All server-side sync activity is logged to wp-content/debug.log with the prefix [Four12 Quick Sync].
+
+What is Logged: Failures, successes, and warnings, including ignored meta keys, reasons for skipping a field, and outcomes of third-party integrations.
+
+12. Best Practices & Performance
+
+Throttle on the Airtable Side: To avoid overwhelming the server, process no more than 5-10 records per minute.
+
+Use the wp_id Fast-Path: Ensure your Airtable scripts store the post_id/term_id returned by the API and send it back on subsequent syncs.
+
+Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remember to add its key to the module's $allowed_meta_keys array.
+</file>
+
+<file path="quick-sync-scripts/package.json">
+{
+  "name": "f12-quick-sync",
+  "version": "1.0.0",
+  "description": "Airtable → WordPress Quick-Sync scripts",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
+  },
+
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
+    "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
+  },
+
+  "devDependencies": {
+    "esbuild": "^0.25.8",
+    "typescript": "^5.8.3",
+    "@types/node": "^20.11.0"
+  }
+}
+</file>
+
+<file path="quick-sync-scripts/README.md">
+# Airtable Script Templates for Quick-Sync
+
+This directory contains master templates for the JavaScript code that runs inside Airtable Automations. Using these templates ensures a consistent, reliable, and easy-to-extend synchronization process.
+
+**Do not edit the template files directly.** Always copy their contents to create new scripts for each CPT or Taxonomy you want to sync.
+
+## The Two-Step Sync Process
+
+For any given record, the sync is a two-step process within Airtable Automations:
+
+1.  **Media Sync (Step 1):** The `TEMPLATE_MediaScript.js` runs first. Its only job is to upload image attachments to the WordPress Media Library and write the resulting WordPress Media IDs back into the Airtable record.
+
+2.  **Data Sync (Step 2):** The `TEMPLATE_QuickSyncScript.js` runs second. It gathers all the record's data—including the Media IDs from Step 1—and sends the complete package to the custom WordPress endpoint.
+
+This two-step approach is crucial because it ensures that when the main data sync happens, we are sending stable WordPress Media IDs, not temporary URLs.
+
+---
+
+## How to Use `TEMPLATE_MediaScript.js`
+
+Follow these steps to set up the media sync for a new CPT (e.g., "Events").
+
+1.  **Copy Template:** Open `TEMPLATE_MediaScript.js` and copy its entire contents.
+2.  **Create Airtable Script:** In your Airtable base, go to **Automations**. Create a new automation or edit an existing one. Add a "Run a script" action.
+3.  **Paste Code:** Paste the copied code into the Airtable script editor.
+4.  **Add Input Variable:** The script requires one input variable. In the left panel, add a variable named `recordId` and set its value to the `Airtable record ID` from the automation's trigger step.
+5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block at the top of the script.
+    ```javascript
+    // 1. WordPress Base URL
+    const WP_BASE_URL = "https://four12global.com";
+
+    // 2. Airtable Table Name
+    const TABLE_NAME = "Events"; // Your CPT's table name
+
+    // 3. Secret Name
+    const API_SECRET_NAME = "API-SYNC";
+
+    // 4. Image Field Configurations
+    const IMAGE_FIELD_CONFIGS = [
+      {
+        airtableAttachmentField: "event_featured_image", // Attachment field in your Events table
+        wpIdField: "event_featured_image_wp_id",         // Number field to store the WP ID
+        wpLinkField: "event_featured_image_link",        // URL/Text field for the WP URL
+        externalCacheField: "event_featured_image_ext",  // URL/Text field for the Airtable URL
+      }
+      // Add more objects if the Event CPT has more images
+    ];
+
+    // 5. Control Fields
+    const CONTROL_FIELDS = {
+      lastModifiedField: "event_media_last_modified", // A "Last Modified Time" field watching your attachment fields
+      publishTimestampField: "event_media_publish_ts",  // A "Date" field
+    };
+    ```
+6.  **Set Secret:** Ensure your automation has access to the `API-SYNC` secret containing your WordPress `username:application_password`.
+
+---
+
+## How to Use `TEMPLATE_QuickSyncScript.js`
+
+Follow these steps to set up the main data sync. This action should run **after** the Media Script action in the same automation.
+
+1.  **Copy Template:** Open `TEMPLATE_QuickSyncScript.js` and copy its entire contents.
+2.  **Create Airtable Script:** Add a new "Run a script" action to your automation.
+3.  **Paste Code:** Paste the copied code into the script editor.
+4.  **Add Input Variable:** Just like before, add the `recordId` input variable.
+5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block. The `FIELD_MAP` is the most important part.
+    ```javascript
+    // 1. WordPress Base URL
+    const WP_BASE_URL = "https://four12global.com";
+
+    // 2. The specific route for your sync endpoint
+    const WP_ROUTE_SUFFIX = "/wp-json/four12/v1/event-sync"; // The endpoint for your CPT
+
+    // 3. Airtable Table Name
+    const TABLE_NAME = "Events";
+
+    // 4. Secret Name
+    const API_SECRET_NAME = "API-SYNC";
+
+    // 5. The Airtable field for the unique SKU.
+    const SKU_FIELD = "event_sku";
+
+    // 6. The Airtable field for the WordPress Post ID.
+    const WP_ID_FIELD = "wp_id";
+
+    // 7. Field Map: 'Airtable Field Name': 'wp_payload_key'
+    const FIELD_MAP = {
+      'event_title':          'post_title',
+      'event_slug':           'post_name',
+      'event_categories':     'event-categories',
+      'event_featured_image_wp_id': '_thumbnail_id', // Use the ID field from the media script!
+      'event_description':    'event-description',
+    };
+    ```
+
+## Debugging
+
+-   Always check the **Run history** of your Airtable automation.
+-   The script logs its progress to the console, which is visible in the run history.
+-   The script also uses `output.set()` to provide structured results, like `payloadPreview` and `wpResponse`, which are invaluable for troubleshooting.
+</file>
+
+<file path=".gitattributes">
+# Auto detect text files and perform LF normalization
+* text=auto
+</file>
+
+<file path="README.md">
+read me file
+</file>
+
+</files>
