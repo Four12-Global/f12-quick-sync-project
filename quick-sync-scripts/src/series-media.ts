@@ -2,6 +2,9 @@
 
 import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
 
+// The single, valid call to input.config()
+const scriptInput = input.config();
+
 const seriesMediaConfig: MediaSyncConfig = {
   // 1. Your Airtable table name
   airtableTable: 'Series',
@@ -9,7 +12,7 @@ const seriesMediaConfig: MediaSyncConfig = {
   // 2. WP Media endpoints per environment
   envMediaEndpoints: {
     prod: 'https://four12global.com/wp-json/wp/v2/media',
-    // staging: 'https://your‑staging‑site.cloudwaysapps.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
   },
 
   // 3. The fields you use in Airtable to track media changes
@@ -56,4 +59,5 @@ const seriesMediaConfig: MediaSyncConfig = {
   ],
 };
 
-mediaSync(seriesMediaConfig);
+// Pass the scriptInput object to the helper function.
+mediaSync(seriesMediaConfig, scriptInput);

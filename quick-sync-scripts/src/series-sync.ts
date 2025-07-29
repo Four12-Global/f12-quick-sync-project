@@ -75,6 +75,9 @@ const FIELD_MAP = {
   session_list_3:      'series-episode-list-4',
 };
 
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
 quickSync({
   /* ----- Airtable table name ----- */
   airtableTable: 'Series',
@@ -89,4 +92,4 @@ quickSync({
     prod:     'https://four12global.com/wp-json/four12/v1/series-sync',
     staging:  'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
   }
-});
+}, scriptInput);

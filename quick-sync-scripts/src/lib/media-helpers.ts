@@ -163,7 +163,7 @@ async function processImageField(
 }
 
 /* =========  Orchestrator ========= */
-export async function mediaSync(cfg: MediaSyncConfig) {
+export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
   let hadErrors = false;
   const {
     airtableTable,
@@ -175,9 +175,15 @@ export async function mediaSync(cfg: MediaSyncConfig) {
   } = cfg;
 
   /* —— Inputs —— */
-  const { recordId, env = 'prod' } = input.config();
+  // Use the passed-in inputConfig object, just like in quickSync
+  const { recordId, env } = inputConfig;
   if (!recordId) throw new Error('Automation must pass {recordId}.');
-  const wpEndpoint = envMediaEndpoints[env] ?? envMediaEndpoints['prod'];
+  // The same safe check for the 'env' variable
+  if (!env || !envMediaEndpoints[env]) {
+    const availableEnvs = Object.keys(envMediaEndpoints).join(', ');
+    throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
+  }
+  const wpEndpoint = envMediaEndpoints[env];
   const basicAuth  = buildBasicAuth(await input.secret(secretName), secretName);
 
   const table  = base.getTable(airtableTable);

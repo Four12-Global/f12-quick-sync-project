@@ -155,7 +155,7 @@ export async function postToWp(
 }
 
 /* =========  Main orchestrator ========= */
-export async function quickSync(cfg: QuickSyncConfig) {
+export async function quickSync(cfg: QuickSyncConfig, inputConfig: any) {
   const {
     airtableTable,
     fieldMap,
@@ -168,11 +168,14 @@ export async function quickSync(cfg: QuickSyncConfig) {
   if (!skuField || !titleField)
     throw new Error('quickSync: skuField and titleField are required');
 
-  /* ── Inputs ── */
-  const { recordId, env = 'prod' } = input.config();
+  // Use the passed-in inputConfig object
+  const { recordId, env } = inputConfig;
   if (!recordId) throw new Error('Automation must pass {recordId}.');
-  const wpUrl = envEndpoints[env] || envEndpoints['prod'];
-  if (!wpUrl) throw new Error('wpUrl must be provided in config.');
+  if (!env || !envEndpoints[env]) {
+    const availableEnvs = Object.keys(envEndpoints).join(', ');
+    throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
+  }
+  const wpUrl = envEndpoints[env];
 
   const syncEpoch = Math.floor(Date.now() / 1000);
   log(`Quick-Sync (${airtableTable}) start – epoch ${syncEpoch}`);
@@ -190,10 +193,25 @@ export async function quickSync(cfg: QuickSyncConfig) {
   /* ── Build fields ── */
   const fields = buildSyncFields(record, fieldMap);
 
-  // Ensure SKU & title exist
-  fields.sku        ??= record.getCellValueAsString(skuField);
-  fields.post_title ??= record.getCellValueAsString(titleField) || record.name;
-  fields[LAST_SYNCED_KEY] = syncEpoch;
+// Ensure SKU & title exist
+fields.sku ??= record.getCellValueAsString(skuField);
+
+// Get the destination key for the title from the field map (e.g., 'post_title' or 'name')
+const titleDestinationKey = (typeof fieldMap[titleField] === 'string')
+  ? fieldMap[titleField] as string
+  : null;
+
+// Only add the title if its destination key is known and it's not already set.
+if (titleDestinationKey) {
+    fields[titleDestinationKey] ??= record.getCellValueAsString(titleField) || record.name;
+}
+
+fields[LAST_SYNCED_KEY] = syncEpoch;
+
+// We still need the title for logging purposes, regardless of its key
+const titleForLogging = (titleDestinationKey && fields[titleDestinationKey])
+    ? fields[titleDestinationKey]
+    : record.getCellValueAsString(titleField) || record.name;
 
   // post_status whitelist
   if (fields.post_status && !allowedStatuses.includes(fields.post_status))
@@ -219,9 +237,9 @@ log(`POSTing to ${wpUrl}`);
 const { data, status } = await postToWp(wpUrl, authB64, payload);
 
 /* ── Handle response ── */
-const postId  = data.post_id ?? data?.data?.post_id;
-const action  = data.action  ?? 'unknown';
-const message = data.message ?? '';
+const postId = data.term_id ?? data.post_id ?? data?.data?.post_id;
+const action   = data.action  ?? 'unknown';
+const message  = data.message ?? '';
 
 output.set(
   'syncStatus',
@@ -230,7 +248,7 @@ output.set(
 );
 output.set('action',     action);
 output.set('message',    message);
-output.set('postTitle',  fields.post_title);
-output.set('wpPostId',   postId);
-log(`✅ WP ${action} –  ${fields.post_title}`);
+output.set('postTitle',  titleForLogging);
+output.set('wpPostId',   postId ?? null);
+log(`✅ WP ${action} –  ${titleForLogging}`);
 }
