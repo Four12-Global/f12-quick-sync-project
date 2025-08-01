@@ -19,6 +19,10 @@
 
 import { buildBasicAuth } from './sync-helpers';          // already exists
 
+/* =========  Small helpers ========= */
+const log = (msg: unknown) =>
+  console.log(`[${new Date().toISOString()}]`, msg);  // ← identical to sync-helpers
+
 /* =========  Types  ========= */
 export interface ImageFieldConfig {
   /** Airtable attachment field (array of objects with .url)              */
@@ -27,7 +31,7 @@ export interface ImageFieldConfig {
   wpIdField:            string;
   /** Field that stores WP media URL(s)                                    */
   wpUrlField:           string;
-  /** Cache of the original Airtable URL(s); lets us detect a changed img  */
+  /** Cache of the original Airtable attachment ID(s); lets us detect a changed img  */
   airtableCacheField:   string;
   /** Optional Airtable text field for external URL                        */
   externalUrlField?:    string;
@@ -45,7 +49,6 @@ export interface MediaSyncConfig {
 }
 
 /* =========  Small helpers ========= */
-const log = (m: unknown) => console.log(`[${new Date().toISOString()}]`, m);
 const SECRET_DEFAULT = 'API-SYNC';
 
 async function download(attachment: any) {
@@ -63,21 +66,34 @@ async function uploadToWp(
   endpoint: string,
   basicAuth: string,
   { blob, filename, contentType }: { blob: Blob; filename: string; contentType: string },
+  recordId?: string,
 ) {
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${basicAuth}`,
-      'Content-Type': contentType,
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    },
-    body: blob,
-  });
-  const json = await res.json();
-  if (!res.ok || !json?.id) {
-    throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
+  // Before you start an upload
+  log(`Uploading ${filename}${recordId ? ` for record ${recordId}` : ''} …`);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+      body: blob,
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.id) {
+      throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
+    }
+    
+    // Success
+    log(`✅ Uploaded ${filename} → ${json.source_url} (wpId: ${json.id})`);
+    
+    return { id: String(json.id), url: json.source_url as string };
+  } catch (err) {
+    console.error(`❌ Upload failed ${filename}${recordId ? ` for record ${recordId}` : ''}: ${(err as Error).message}`);
+    throw err; // keep your upstream error handling intact
   }
-  return { id: String(json.id), url: json.source_url as string };
 }
 
 /* =========  Field‑by‑field processor ========= */
@@ -86,12 +102,14 @@ async function processImageField(
   spec: ImageFieldConfig,
   wpEndpoint: string,
   basicAuth: string,
+  recordId: string,
   onError?: (err: Error) => void,
 ) {
   const a = record.getCellValue(spec.attachmentField) ?? [];
   const prevWpIds   = (record.getCellValue(spec.wpIdField)  ?? '') as string;
   const prevWpUrls  = (record.getCellValue(spec.wpUrlField) ?? '') as string;
-  const prevAirtUrl = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
+  const prevCacheIdsRaw = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
+  const prevIds = (prevCacheIdsRaw ?? '').split(',').filter(Boolean);
   const externalUrl = spec.externalUrlField
     ? (record.getCellValueAsString?.(spec.externalUrlField) || '').trim()
     : '';
@@ -109,7 +127,7 @@ async function processImageField(
 
   /* ----- No attachment?  Maybe clear stale WP refs ------ */
   if (a.length === 0) {
-    if (prevWpIds || prevWpUrls || prevAirtUrl) {
+    if (prevWpIds || prevWpUrls || prevCacheIdsRaw) {
       return { wpIds: null, wpUrls: null, cacheUrls: null, changed: true };
     }
     return { changed: false };
@@ -118,16 +136,15 @@ async function processImageField(
   /* ----- SINGLE attachment (99 % of your use‑cases) ----- */
   if (!spec.isMultiple) {
     const att = a[0];
-    const airtableUrl = att.url;
-    if (airtableUrl === prevAirtUrl && prevWpIds) {
-      // unchanged – skip
+    if (prevIds.includes(att.id) && prevWpIds) {
+      log(`↩️ Reusing ${att.filename ?? 'file'} (wpId: ${prevWpIds})`);
       return { changed: false };
     }
     // New file or first run
     try {
       const { blob, filename, contentType } = await download(att);
-      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-      return { wpIds: id, wpUrls: url, cacheUrls: airtableUrl, changed: true };
+      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+      return { wpIds: id, wpUrls: url, cacheUrls: att.id, changed: true };
     } catch (err) {
       if (onError) onError(err as Error);
       log(`⚠️  single-upload failed ${att.url}: ${(err as Error).message}`);
@@ -137,23 +154,35 @@ async function processImageField(
 
   /* ----- MULTI attachment ----- */
   if (spec.isMultiple) {
-    const uploads: Array<{id:string; url:string}> = [];
+    const uploads: Array<{id:string; url:string; airtableId:string}> = [];
     for (const at of a) {
+      if (prevIds.includes(at.id)) {
+        log(`↩️ Reusing ${at.filename ?? 'file'}…`);
+        continue;
+      }
       try {
         const { blob, filename, contentType } = await download(at);
-        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-        uploads.push({ id, url });
+        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+        uploads.push({ id, url, airtableId: at.id });
       } catch (err) {
         if (onError) onError(err as Error);
         log(`❌  multi‑upload failed ${at.url}: ${(err as Error).message}`);
       }
     }
-    if (uploads.length) {
+    if (uploads.length || a.some((at: any) => prevIds.includes(at.id))) {
+      // Collect everything you want to keep
+      const keptIds   = a.filter((at: any) => prevIds.includes(at.id))
+                         .map((at: any) => at.id);
+      const keptWpIds = prevWpIds.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+      const keptWpUrls = prevWpUrls.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+
       return {
-        wpIds: uploads.map(u => u.id).join(","),
-        wpUrls: uploads.map(u => u.url).join(","),
-        cacheUrls: a.map((att: any) => att.url).join(","),
-        changed: true,
+        wpIds:     [...keptWpIds, ...uploads.map(u => u.id)].join(','),
+        wpUrls:    [...keptWpUrls, ...uploads.map(u => u.url)].join(','),
+        cacheUrls: [...keptIds ,  ...uploads.map(u => u.airtableId)].join(','),
+        changed:   true,
       };
     }
     return { changed: false };
@@ -214,7 +243,7 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
 
   for (const spec of imageFields) {
     try {
-      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, (err) => { hadErrors = true; });
+      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, recordId, (err) => { hadErrors = true; });
       if (r && r.changed) {
         updates[spec.wpIdField]          = r.wpIds   ?? null;
         updates[spec.wpUrlField]         = r.wpUrls  ?? null;

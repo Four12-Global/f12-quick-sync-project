@@ -17,6 +17,9 @@ abstract class F12_Quick_Sync_Module_Base {
     protected $post_content_key;
     protected $allowed_post_statuses = ['publish', 'draft', 'trash', 'private'];
     protected bool $duplicate_post_content_to_meta = false;
+    
+    /** @var array  Key = payload field, value = relation config */
+    protected $jet_engine_relation_map = [];
 
     /**
      * Constructor to set up module-specific hooks.
@@ -147,6 +150,7 @@ abstract class F12_Quick_Sync_Module_Base {
         $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
         $this->_process_taxonomies( $post_id, $payload, $sku, $changed_summary );
         $this->_process_special_fields( $post_id, $payload, $sku, $changed_summary ); // This now handles AIOSEO universally
+        $this->_process_jet_engine_relations( $post_id, $payload, $sku, $changed_summary );
         $this->_process_meta_fields( $post_id, $payload, $sku, $changed_summary );
     
         // ---- Prepare and return response ----
@@ -456,6 +460,47 @@ abstract class F12_Quick_Sync_Module_Base {
                 }
             }
              if ( ! in_array( $meta_key, $changed_summary['meta'] ) ) $changed_summary['meta'][] = $meta_key;
+        }
+    }
+
+    /**
+     * Sync JetEngine relationships declared in $this->jet_engine_relation_map.
+     */
+    protected function _process_jet_engine_relations( int $child_id, array &$payload, $sku, array &$changed_summary ) {
+
+        if ( empty( $this->jet_engine_relation_map ) || ! function_exists( 'f12_set_jet_relation' ) ) {
+            return;
+        }
+
+        foreach ( $this->jet_engine_relation_map as $payload_key => $cfg ) {
+
+            if ( ! isset( $payload[ $payload_key ] ) ) {
+                continue;
+            }
+
+            $raw      = $payload[ $payload_key ];
+            $sku_list = is_array( $raw ) ? $raw : array_map( 'trim', explode( ',', (string) $raw ) );
+            $parent_ids = [];
+
+            foreach ( array_filter( $sku_list ) as $sku ) {
+                $parent_post = f12_get_post_by_sku( $sku, $cfg['parent_cpt'], $cfg['parent_sku_meta'] );
+                if ( $parent_post ) {
+                    $parent_ids[] = $parent_post->ID;
+                } else {
+                    f12_sync_log( "[JetEngine] Parent SKU '{$sku}' not found for CPT '{$cfg['parent_cpt']}'." );
+                }
+            }
+
+            $mode   = $cfg['mode'] ?? 'replace';         // default to replace
+            $result = f12_set_jet_relation( $cfg['relation_id'], $child_id, $parent_ids, $mode );
+
+            if ( is_wp_error( $result ) ) {
+                f12_sync_log( '[JetEngine] ' . $result->get_error_message() );
+            } else {
+                $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
+            }
+
+            unset( $payload[ $payload_key ] );           // prevent duplicate handling
         }
     }
 }

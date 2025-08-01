@@ -48,6 +48,8 @@ src/
   author-sync.ts
   series-media.ts
   series-sync.ts
+  sessions-media.ts
+  sessions-sync.ts
 env.d.ts
 package.json
 README.md
@@ -79,6 +81,10 @@ This section contains the contents of the repository's files.
 
 import { buildBasicAuth } from './sync-helpers';          // already exists
 
+/* =========  Small helpers ========= */
+const log = (msg: unknown) =>
+  console.log(`[${new Date().toISOString()}]`, msg);  // ← identical to sync-helpers
+
 /* =========  Types  ========= */
 export interface ImageFieldConfig {
   /** Airtable attachment field (array of objects with .url)              */
@@ -87,7 +93,7 @@ export interface ImageFieldConfig {
   wpIdField:            string;
   /** Field that stores WP media URL(s)                                    */
   wpUrlField:           string;
-  /** Cache of the original Airtable URL(s); lets us detect a changed img  */
+  /** Cache of the original Airtable attachment ID(s); lets us detect a changed img  */
   airtableCacheField:   string;
   /** Optional Airtable text field for external URL                        */
   externalUrlField?:    string;
@@ -105,7 +111,6 @@ export interface MediaSyncConfig {
 }
 
 /* =========  Small helpers ========= */
-const log = (m: unknown) => console.log(`[${new Date().toISOString()}]`, m);
 const SECRET_DEFAULT = 'API-SYNC';
 
 async function download(attachment: any) {
@@ -123,21 +128,34 @@ async function uploadToWp(
   endpoint: string,
   basicAuth: string,
   { blob, filename, contentType }: { blob: Blob; filename: string; contentType: string },
+  recordId?: string,
 ) {
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${basicAuth}`,
-      'Content-Type': contentType,
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    },
-    body: blob,
-  });
-  const json = await res.json();
-  if (!res.ok || !json?.id) {
-    throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
+  // Before you start an upload
+  log(`Uploading ${filename}${recordId ? ` for record ${recordId}` : ''} …`);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+      body: blob,
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.id) {
+      throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
+    }
+    
+    // Success
+    log(`✅ Uploaded ${filename} → ${json.source_url} (wpId: ${json.id})`);
+    
+    return { id: String(json.id), url: json.source_url as string };
+  } catch (err) {
+    console.error(`❌ Upload failed ${filename}${recordId ? ` for record ${recordId}` : ''}: ${(err as Error).message}`);
+    throw err; // keep your upstream error handling intact
   }
-  return { id: String(json.id), url: json.source_url as string };
 }
 
 /* =========  Field‑by‑field processor ========= */
@@ -146,12 +164,14 @@ async function processImageField(
   spec: ImageFieldConfig,
   wpEndpoint: string,
   basicAuth: string,
+  recordId: string,
   onError?: (err: Error) => void,
 ) {
   const a = record.getCellValue(spec.attachmentField) ?? [];
   const prevWpIds   = (record.getCellValue(spec.wpIdField)  ?? '') as string;
   const prevWpUrls  = (record.getCellValue(spec.wpUrlField) ?? '') as string;
-  const prevAirtUrl = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
+  const prevCacheIdsRaw = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
+  const prevIds = (prevCacheIdsRaw ?? '').split(',').filter(Boolean);
   const externalUrl = spec.externalUrlField
     ? (record.getCellValueAsString?.(spec.externalUrlField) || '').trim()
     : '';
@@ -169,7 +189,7 @@ async function processImageField(
 
   /* ----- No attachment?  Maybe clear stale WP refs ------ */
   if (a.length === 0) {
-    if (prevWpIds || prevWpUrls || prevAirtUrl) {
+    if (prevWpIds || prevWpUrls || prevCacheIdsRaw) {
       return { wpIds: null, wpUrls: null, cacheUrls: null, changed: true };
     }
     return { changed: false };
@@ -178,16 +198,15 @@ async function processImageField(
   /* ----- SINGLE attachment (99 % of your use‑cases) ----- */
   if (!spec.isMultiple) {
     const att = a[0];
-    const airtableUrl = att.url;
-    if (airtableUrl === prevAirtUrl && prevWpIds) {
-      // unchanged – skip
+    if (prevIds.includes(att.id) && prevWpIds) {
+      log(`↩️ Reusing ${att.filename ?? 'file'} (wpId: ${prevWpIds})`);
       return { changed: false };
     }
     // New file or first run
     try {
       const { blob, filename, contentType } = await download(att);
-      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-      return { wpIds: id, wpUrls: url, cacheUrls: airtableUrl, changed: true };
+      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+      return { wpIds: id, wpUrls: url, cacheUrls: att.id, changed: true };
     } catch (err) {
       if (onError) onError(err as Error);
       log(`⚠️  single-upload failed ${att.url}: ${(err as Error).message}`);
@@ -197,23 +216,35 @@ async function processImageField(
 
   /* ----- MULTI attachment ----- */
   if (spec.isMultiple) {
-    const uploads: Array<{id:string; url:string}> = [];
+    const uploads: Array<{id:string; url:string; airtableId:string}> = [];
     for (const at of a) {
+      if (prevIds.includes(at.id)) {
+        log(`↩️ Reusing ${at.filename ?? 'file'}…`);
+        continue;
+      }
       try {
         const { blob, filename, contentType } = await download(at);
-        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-        uploads.push({ id, url });
+        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+        uploads.push({ id, url, airtableId: at.id });
       } catch (err) {
         if (onError) onError(err as Error);
         log(`❌  multi‑upload failed ${at.url}: ${(err as Error).message}`);
       }
     }
-    if (uploads.length) {
+    if (uploads.length || a.some((at: any) => prevIds.includes(at.id))) {
+      // Collect everything you want to keep
+      const keptIds   = a.filter((at: any) => prevIds.includes(at.id))
+                         .map((at: any) => at.id);
+      const keptWpIds = prevWpIds.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+      const keptWpUrls = prevWpUrls.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+
       return {
-        wpIds: uploads.map(u => u.id).join(","),
-        wpUrls: uploads.map(u => u.url).join(","),
-        cacheUrls: a.map((att: any) => att.url).join(","),
-        changed: true,
+        wpIds:     [...keptWpIds, ...uploads.map(u => u.id)].join(','),
+        wpUrls:    [...keptWpUrls, ...uploads.map(u => u.url)].join(','),
+        cacheUrls: [...keptIds ,  ...uploads.map(u => u.airtableId)].join(','),
+        changed:   true,
       };
     }
     return { changed: false };
@@ -234,10 +265,16 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
     secretName = SECRET_DEFAULT,
   } = cfg;
 
-  // Use the passed-in inputConfig object
-  const { recordId, env = 'prod' } = inputConfig;
+  /* —— Inputs —— */
+  // Use the passed-in inputConfig object, just like in quickSync
+  const { recordId, env } = inputConfig;
   if (!recordId) throw new Error('Automation must pass {recordId}.');
-  const wpEndpoint = envMediaEndpoints[env] ?? envMediaEndpoints['prod'];
+  // The same safe check for the 'env' variable
+  if (!env || !envMediaEndpoints[env]) {
+    const availableEnvs = Object.keys(envMediaEndpoints).join(', ');
+    throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
+  }
+  const wpEndpoint = envMediaEndpoints[env];
   const basicAuth  = buildBasicAuth(await input.secret(secretName), secretName);
 
   const table  = base.getTable(airtableTable);
@@ -268,7 +305,7 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
 
   for (const spec of imageFields) {
     try {
-      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, (err) => { hadErrors = true; });
+      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, recordId, (err) => { hadErrors = true; });
       if (r && r.changed) {
         updates[spec.wpIdField]          = r.wpIds   ?? null;
         updates[spec.wpUrlField]         = r.wpUrls  ?? null;
@@ -536,9 +573,9 @@ log(`POSTing to ${wpUrl}`);
 const { data, status } = await postToWp(wpUrl, authB64, payload);
 
 /* ── Handle response ── */
-const postId  = data.post_id ?? data?.data?.post_id;
-const action  = data.action  ?? 'unknown';
-const message = data.message ?? '';
+const postId = data.term_id ?? data.post_id ?? data?.data?.post_id;
+const action   = data.action  ?? 'unknown';
+const message  = data.message ?? '';
 
 output.set(
   'syncStatus',
@@ -547,9 +584,9 @@ output.set(
 );
 output.set('action',     action);
 output.set('message',    message);
-output.set('postTitle',  titleForLogging); // Use our new logging variable
-output.set('wpPostId',   postId ?? null);  // Coalesce undefined to null
-log(`✅ WP ${action} –  ${titleForLogging}`); // Use our new logging variable
+output.set('postTitle',  titleForLogging);
+output.set('wpPostId',   postId ?? null);
+log(`✅ WP ${action} –  ${titleForLogging}`);
 }
 </file>
 
@@ -566,7 +603,7 @@ const authorMediaConfig: MediaSyncConfig = {
   // 2. WP Media endpoints per environment
   envMediaEndpoints: {
     prod: 'https://four12global.com/wp-json/wp/v2/media',
-    // staging: 'https://your-staging-site.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
   },
 
   // 3. The fields you use to track media changes
@@ -629,7 +666,7 @@ const authorSyncConfig: QuickSyncConfig = {
   // Your endpoints
   envEndpoints: {
     prod: 'https://four12global.com/wp-json/four12/v1/author-sync',
-    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/four12/v1/author-sync' 
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/author-sync' 
   },
 };
 
@@ -652,7 +689,7 @@ const seriesMediaConfig: MediaSyncConfig = {
   // 2. WP Media endpoints per environment
   envMediaEndpoints: {
     prod: 'https://four12global.com/wp-json/wp/v2/media',
-    // staging: 'https://your‑staging‑site.cloudwaysapps.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
   },
 
   // 3. The fields you use in Airtable to track media changes
@@ -801,6 +838,157 @@ quickSync({
 }, scriptInput);
 </file>
 
+<file path="src/sessions-media.ts">
+// src/sessions-media.ts
+
+import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+// The single, valid call to input.config()
+const scriptInput = input.config();
+
+const sessionsMediaConfig: MediaSyncConfig = {
+  // 1. Your Airtable table name
+  airtableTable: 'Sessions',
+
+  // 2. WP Media endpoints per environment
+  envMediaEndpoints: {
+    prod:    'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
+  },
+
+  // 3. Fields that track media-related updates
+  lastModifiedField:     'media_last_modified',
+  publishTimestampField: 'media_publish_timestamp',
+
+  // 4. One entry per image slot in the CPT
+  imageFields: [
+    {
+      attachmentField:    'featured_image_attachment',
+      wpIdField:          'featured_image_wp_id',
+      wpUrlField:         'featured_image_link',
+      airtableCacheField: 'featured_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'banner_image_attachment',
+      wpIdField:          'banner_image_wp_id',
+      wpUrlField:         'banner_image_link',
+      airtableCacheField: 'banner_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'listing_image_attachment',
+      wpIdField:          'listing_image_wp_id',
+      wpUrlField:         'listing_image_link',
+      airtableCacheField: 'listing_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'no_words_image_attachment',
+      wpIdField:          'no_words_image_wp_id',
+      wpUrlField:         'no_words_image_link',
+      airtableCacheField: 'no_words_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'pdf_image_1_attachment',
+      wpIdField:          'pdf_image_1_wp_id',
+      wpUrlField:         'pdf_image_1_link',
+      airtableCacheField: 'pdf_image_1_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'pdf_image_2_attachment',
+      wpIdField:          'pdf_image_2_wp_id',
+      wpUrlField:         'pdf_image_2_link',
+      airtableCacheField: 'pdf_image_2_external',
+      isMultiple:         false,
+    },
+  ],
+};
+
+// Fire it off
+mediaSync(sessionsMediaConfig, scriptInput);
+</file>
+
+<file path="src/sessions-sync.ts">
+import { quickSync } from './lib/sync-helpers';
+
+const FIELD_MAP = {
+  /* ── Core WP fields ───────────────────────────── */
+  session_title:      'post_title',
+  session_slug:       'post_name',
+  session_description:'post_content',
+  excerpt:            'post_excerpt',
+  session_permalink:  '_custom_uri',
+  session_sku:        'sku',
+
+  /* ── Media fields (ID preferred, fallback to URL) ─ */
+  featured_image: {
+    airtableIdField:   'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id',
+  },
+  listing_image: {
+    airtableIdField:   'listing_image_wp_id',
+    airtableLinkField: 'listing_image_link',
+    wpKey: 'listing-image',
+  },
+  no_words_image: {
+    airtableIdField:   'no_words_image_wp_id',
+    airtableLinkField: 'no_words_image_link',
+    wpKey: 'no-words-image',
+  },
+  banner_image: {
+    airtableIdField:   'banner_image_wp_id',
+    airtableLinkField: 'banner_image_link',
+    wpKey: 'banner-image',
+  },
+  pdf_image_1: {
+    airtableLinkField: 'pdf_image_1_link',
+    wpKey: 'pdf-image-1',
+  },
+  pdf_image_2: {
+    airtableLinkField: 'pdf_image_2_link',
+    wpKey: 'manual2-image',
+  },
+
+  /* ── Meta fields ───────────────────────────── */
+  pdf_title_1:           'custom-pdf-title-1',
+  pdf_link_1:            'link_ten',
+  pdf_title_2:           'custom-pdf-title-2',
+  pdf_link_2:            'link_eleven',
+  alt_link_1:            'link_five',
+  youtube_link:          'link_one',
+  vimeo_link:            'vimeo_link',
+  spotify_podcast:       'spotify-podcast-link',
+  apple_podcast:         'apple-podcast-link',
+  available_on_request:  'available-on-request',
+  publish_timestamp:     'last_published',
+  last_synced:           'last_synced',
+
+  /* ── Taxonomies ─────────────────────────────── */
+  global_categories: 'global-categories',
+  series_category:    'series-categories',
+  topics_title:       'topics',
+  speaker_title:      'author_speaker',
+};
+
+const scriptInput = input.config();
+
+quickSync({
+  airtableTable: 'Sessions',
+  skuField:      'session_sku',
+  titleField:    'session_title',
+
+  fieldMap: FIELD_MAP,
+  envEndpoints: {
+    prod:    'https://four12global.com/wp-json/four12/v1/sessions-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync',
+  }
+}, scriptInput);
+</file>
+
 <file path="env.d.ts">
 // Airtable scripting globals (injected at runtime)
 declare const input:  any;
@@ -818,17 +1006,15 @@ declare const base:   any;
     "type": "git",
     "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
   },
-
   "scripts": {
     "check": "tsc --noEmit",
     "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
     "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
   },
-
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "esbuild": "^0.25.8",
-    "typescript": "^5.8.3",
-    "@types/node": "^20.11.0"
+    "typescript": "^5.8.3"
   }
 }
 </file>

@@ -45,6 +45,7 @@ quick-sync-plugin/
     author-sync.php
     leaders-sync.php
     series-sync.php
+    sessions-sync.php
   vendor/
     .github/
       workflows/
@@ -64,6 +65,8 @@ quick-sync-scripts/
     author-sync.js
     series-media.js
     series-sync.js
+    sessions-media.js
+    sessions-sync.js
   src/
     lib/
       media-helpers.ts
@@ -72,6 +75,8 @@ quick-sync-scripts/
     author-sync.ts
     series-media.ts
     series-sync.ts
+    sessions-media.ts
+    sessions-sync.ts
   env.d.ts
   package.json
   README.md
@@ -85,654 +90,91 @@ README.md
 <files>
 This section contains the contents of the repository's files.
 
-<file path="quick-sync-scripts/dist/author-media.js">
-"use strict";(()=>{var A="API-SYNC";function k(e,t=A){if(!e||!e.includes(":"))throw new Error(`Secret "${t}" must be "user:app-password".`);return Buffer.from(e).toString("base64")}var f=e=>console.log(`[${new Date().toISOString()}]`,e),v="API-SYNC";async function M(e){var r,c;let t=await fetch(e.url);if(!t.ok)throw new Error(`\u2198 download ${e.url} \u2192 HTTP ${t.status}`);return{blob:await t.blob(),filename:(r=e.filename)!=null?r:"file",contentType:(c=t.headers.get("content-type"))!=null?c:"application/octet-stream",srcUrl:e.url}}async function U(e,t,{blob:r,filename:c,contentType:d}){let a=await fetch(e,{method:"POST",headers:{Authorization:`Basic ${t}`,"Content-Type":d,"Content-Disposition":`attachment; filename="${c}"`},body:r}),s=await a.json();if(!a.ok||!(s!=null&&s.id))throw new Error(`\u2197 WP upload failed ${a.status}: ${JSON.stringify(s).slice(0,200)}`);return{id:String(s.id),url:s.source_url}}async function x(e,t,r,c,d){var S,C,T,F,E;let a=(S=e.getCellValue(t.attachmentField))!=null?S:[],s=(C=e.getCellValue(t.wpIdField))!=null?C:"",m=(T=e.getCellValue(t.wpUrlField))!=null?T:"",b=(F=e.getCellValue(t.airtableCacheField))!=null?F:"",p=t.externalUrlField?(((E=e.getCellValueAsString)==null?void 0:E.call(e,t.externalUrlField))||"").trim():"";if(a.length===0&&p)return{wpIds:null,wpUrls:p,cacheUrls:null,changed:p!==m};if(a.length===0)return s||m||b?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!t.isMultiple){let n=a[0],i=n.url;if(i===b&&s)return{changed:!1};try{let{blob:l,filename:u,contentType:h}=await M(n),{id:w,url:y}=await U(r,c,{blob:l,filename:u,contentType:h});return{wpIds:w,wpUrls:y,cacheUrls:i,changed:!0}}catch(l){return d&&d(l),f(`\u26A0\uFE0F  single-upload failed ${n.url}: ${l.message}`),{changed:!1}}}if(t.isMultiple){let n=[];for(let i of a)try{let{blob:l,filename:u,contentType:h}=await M(i),{id:w,url:y}=await U(r,c,{blob:l,filename:u,contentType:h});n.push({id:w,url:y})}catch(l){d&&d(l),f(`\u274C  multi\u2011upload failed ${i.url}: ${l.message}`)}return n.length?{wpIds:n.map(i=>i.id).join(","),wpUrls:n.map(i=>i.url).join(","),cacheUrls:a.map(i=>i.url).join(","),changed:!0}:{changed:!1}}return{changed:!1}}async function $(e,t){var w,y,_,I;let r=!1,{airtableTable:c,envMediaEndpoints:d,imageFields:a,lastModifiedField:s,publishTimestampField:m,secretName:b=v}=e,{recordId:p,env:S="prod"}=t;if(!p)throw new Error("Automation must pass {recordId}.");let C=(w=d[S])!=null?w:d.prod,T=k(await input.secret(b),b),F=base.getTable(c),E=[s,m,...a.flatMap(o=>[o.attachmentField,o.wpIdField,o.wpUrlField,o.airtableCacheField])],n=await F.selectRecordAsync(p,{fields:E});if(!n)throw new Error(`Record ${p} not found.`);let i=n.getCellValue(s),l=n.getCellValue(m);if(i&&l&&Date.parse(i)<=Date.parse(l)){f("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let u={},h=!1;for(let o of a)try{let g=await x(n,o,C,T,L=>{r=!0});g&&g.changed&&(u[o.wpIdField]=(y=g.wpIds)!=null?y:null,u[o.wpUrlField]=(_=g.wpUrls)!=null?_:null,u[o.airtableCacheField]=(I=g.cacheUrls)!=null?I:null,h=!0)}catch(g){r=!0,f(`\u26A0\uFE0F  ${o.attachmentField}: ${g.message}`)}h?(r?f("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):u[m]=new Date().toISOString(),await F.updateRecordAsync(n,u),f("\u2705\xA0Media sync complete & fields updated")):f("\u2714\xA0No media changes detected \u2013 nothing to write")}var N={airtableTable:"author-speaker",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"profile_image_attachment",wpIdField:"profile_image_wp_id",wpUrlField:"profile_image_link",airtableCacheField:"profile_image_external",isMultiple:!1}]},V=input.config();$(N,V);})();
+<file path="quick-sync-plugin/modules/sessions-sync.php">
+<?php
+/**
+ * Quick Sync Module: Sessions CPT
+ *
+ * Provides the specific configuration for syncing the 'sessions' Custom Post Type.
+ * It inherits all universal processing logic (Timezone, AIOSEO, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'sessions' CPT.
+     */
+    protected function init() {
+        // --- Core Configuration ---
+        $this->cpt = 'resources';
+        $this->endpoint_slug = 'series-sync';
+        $this->sku_meta_key = 'sku';
+
+        // --- Field Mapping ---
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_date'    => 'post_date',
+            'post_status'  => 'post_status',
+        ];
+
+        $this->taxonomy_map = [
+            'global-categories' => 'global-categories',
+            'series-categories' => 'series-categories',
+            'topics'            => 'topics',
+            'series-templates'  => 'series-templates',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+            'listing-image',
+            'no-words-image',
+            'banner-image',
+            'manual1-image',
+        ];
+
+    }
+
+}
 </file>
 
-<file path="quick-sync-scripts/dist/author-sync.js">
-"use strict";(()=>{var S=n=>console.log(`[${new Date().toISOString()}]`,n),j=["publish","draft","trash","private"],v="API-SYNC",V="last_synced";function x(n,t=v){if(!n||!n.includes(":"))throw new Error(`Secret "${t}" must be "user:app-password".`);return Buffer.from(n).toString("base64")}function D(n,t,s){let e=new Set;for(let r in n){let i=n[r];typeof i=="string"?e.add(r):(e.add(i.airtableIdField),i.airtableLinkField&&e.add(i.airtableLinkField))}return e.add("wp_id").add(t).add(s),Array.from(e)}function Q(n,t){return t==null?null:Array.isArray(t)?t.map(s=>typeof s=="object"&&s!==null&&"name"in s?s.name:String(s)):typeof t=="object"&&t.url?t.url:typeof t=="object"&&t!==null&&"name"in t?t.name:t}function U(n,t){let s=n.parentTable,e={};for(let r in t){let i=t[r];if(typeof i=="string"){let c=n.getCellValue(r);i==="post_status"?e.post_status=c&&c.name?c.name.toLowerCase():typeof c=="string"?c.toLowerCase():null:e[i]=Q(r,c);continue}let a=n.getCellValue(i.airtableIdField)||i.airtableLinkField&&n.getCellValue(i.airtableLinkField);a&&(e[i.wpKey]=a)}return e}async function q(n,t,s){let e=await fetch(n,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${t}`},body:JSON.stringify(s)}),r=await e.text();if(!e.ok)throw new Error(`HTTP ${e.status}: ${r.slice(0,500)}`);return{data:JSON.parse(r),status:e.status}}async function L(n,t){var F,m,T,E,A,C;let{airtableTable:s,fieldMap:e,envEndpoints:r,skuField:i,titleField:a,allowedStatuses:c=j,secretName:b=v}=n;if(!i||!a)throw new Error("quickSync: skuField and titleField are required");let{recordId:g,env:f}=t;if(!g)throw new Error("Automation must pass {recordId}.");if(!f||!r[f]){let R=Object.keys(r).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${R}`)}let w=r[f],h=Math.floor(Date.now()/1e3);S(`Quick-Sync (${s}) start \u2013 epoch ${h}`);let M=await input.secret(b),$=x(M,b),I=base.getTable(s),N=D(e,i,a),l=await I.selectRecordAsync(g,{fields:N});if(!l)throw new Error(`Record ${g} not found in ${s}`);let o=U(l,e);(F=o.sku)!=null||(o.sku=l.getCellValueAsString(i));let u=typeof e[a]=="string"?e[a]:null;u&&((m=o[u])!=null||(o[u]=l.getCellValueAsString(a)||l.name)),o[V]=h;let k=u&&o[u]?o[u]:l.getCellValueAsString(a)||l.name;o.post_status&&!c.includes(o.post_status)&&delete o.post_status;let y={airtableRecordId:l.id,sku:o.sku,wp_id:l.getCellValue("wp_id")||null,fields:o};console.log(JSON.stringify(y,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(y,null,2).slice(0,2500)),S(`POSTing to ${w}`);let{data:d,status:O}=await q(w,$,y),p=(E=d.post_id)!=null?E:(T=d==null?void 0:d.data)==null?void 0:T.post_id,_=(A=d.action)!=null?A:"unknown",P=(C=d.message)!=null?C:"";output.set("syncStatus",d&&p?"Success":`HTTP_${O}`),output.set("action",_),output.set("message",P),output.set("postTitle",k),output.set("wpPostId",p!=null?p:null),S(`\u2705 WP ${_} \u2013  ${k}`)}var B=input.config(),J={author_title:"name",author_slug:"slug",author_description:"as_description",profile_image_wp_id:"profile_image",sku:"sku"},H={airtableTable:"author-speaker",skuField:"sku",titleField:"author_title",fieldMap:J,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/author-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/four12/v1/author-sync"}};L(H,B);})();
+<file path="quick-sync-scripts/dist/sessions-media.js">
+"use strict";(()=>{var v="API-SYNC";function k(t,i=v){if(!t||!t.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}var p=t=>console.log(`[${new Date().toISOString()}]`,t),A="API-SYNC";async function E(t){var c,o;let i=await fetch(t.url);if(!i.ok)throw new Error(`\u2198 download ${t.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(c=t.filename)!=null?c:"file",contentType:(o=i.headers.get("content-type"))!=null?o:"application/octet-stream",srcUrl:t.url}}async function U(t,i,{blob:c,filename:o,contentType:m},d){p(`Uploading ${o}${d?` for record ${d}`:""} \u2026`);try{let n=await fetch(t,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${o}"`},body:c}),a=await n.json();if(!n.ok||!(a!=null&&a.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(a).slice(0,200)}`);return p(`\u2705 Uploaded ${o} \u2192 ${a.source_url} (wpId: ${a.id})`),{id:String(a.id),url:a.source_url}}catch(n){throw console.error(`\u274C Upload failed ${o}${d?` for record ${d}`:""}: ${n.message}`),n}}async function x(t,i,c,o,m,d){var I,S,T,w,C,$,_;let n=(I=t.getCellValue(i.attachmentField))!=null?I:[],a=(S=t.getCellValue(i.wpIdField))!=null?S:"",F=(T=t.getCellValue(i.wpUrlField))!=null?T:"",f=(w=t.getCellValue(i.airtableCacheField))!=null?w:"",g=(f!=null?f:"").split(",").filter(Boolean),y=i.externalUrlField?(((C=t.getCellValueAsString)==null?void 0:C.call(t,i.externalUrlField))||"").trim():"";if(n.length===0&&y)return{wpIds:null,wpUrls:y,cacheUrls:null,changed:y!==F};if(n.length===0)return a||F||f?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let s=n[0];if(g.includes(s.id)&&a)return p(`\u21A9\uFE0F Reusing ${($=s.filename)!=null?$:"file"} (wpId: ${a})`),{changed:!1};try{let{blob:l,filename:u,contentType:h}=await E(s),{id:e,url:r}=await U(c,o,{blob:l,filename:u,contentType:h},m);return{wpIds:e,wpUrls:r,cacheUrls:s.id,changed:!0}}catch(l){return d&&d(l),p(`\u26A0\uFE0F  single-upload failed ${s.url}: ${l.message}`),{changed:!1}}}if(i.isMultiple){let s=[];for(let l of n){if(g.includes(l.id)){p(`\u21A9\uFE0F Reusing ${(_=l.filename)!=null?_:"file"}\u2026`);continue}try{let{blob:u,filename:h,contentType:e}=await E(l),{id:r,url:b}=await U(c,o,{blob:u,filename:h,contentType:e},m);s.push({id:r,url:b,airtableId:l.id})}catch(u){d&&d(u),p(`\u274C  multi\u2011upload failed ${l.url}: ${u.message}`)}}if(s.length||n.some(l=>g.includes(l.id))){let l=n.filter(e=>g.includes(e.id)).map(e=>e.id),u=a.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)}),h=F.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)});return{wpIds:[...u,...s.map(e=>e.id)].join(","),wpUrls:[...h,...s.map(e=>e.url)].join(","),cacheUrls:[...l,...s.map(e=>e.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function M(t,i){var l,u,h;let c=!1,{airtableTable:o,envMediaEndpoints:m,imageFields:d,lastModifiedField:n,publishTimestampField:a,secretName:F=A}=t,{recordId:f,env:g}=i;if(!f)throw new Error("Automation must pass {recordId}.");if(!g||!m[g]){let e=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${e}`)}let y=m[g],I=k(await input.secret(F),F),S=base.getTable(o),T=[n,a,...d.flatMap(e=>[e.attachmentField,e.wpIdField,e.wpUrlField,e.airtableCacheField])],w=await S.selectRecordAsync(f,{fields:T});if(!w)throw new Error(`Record ${f} not found.`);let C=w.getCellValue(n),$=w.getCellValue(a);if(C&&$&&Date.parse(C)<=Date.parse($)){p("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let _={},s=!1;for(let e of d)try{let r=await x(w,e,y,I,f,b=>{c=!0});r&&r.changed&&(_[e.wpIdField]=(l=r.wpIds)!=null?l:null,_[e.wpUrlField]=(u=r.wpUrls)!=null?u:null,_[e.airtableCacheField]=(h=r.cacheUrls)!=null?h:null,s=!0)}catch(r){c=!0,p(`\u26A0\uFE0F  ${e.attachmentField}: ${r.message}`)}s?(c?p("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):_[a]=new Date().toISOString(),await S.updateRecordAsync(w,_),p("\u2705\xA0Media sync complete & fields updated")):p("\u2714\xA0No media changes detected \u2013 nothing to write")}var N=input.config(),R={airtableTable:"Sessions",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"pdf_image_1_attachment",wpIdField:"pdf_image_1_wp_id",wpUrlField:"pdf_image_1_link",airtableCacheField:"pdf_image_1_external",isMultiple:!1},{attachmentField:"pdf_image_2_attachment",wpIdField:"pdf_image_2_wp_id",wpUrlField:"pdf_image_2_link",airtableCacheField:"pdf_image_2_external",isMultiple:!1}]};M(R,N);})();
 </file>
 
-<file path="quick-sync-scripts/src/author-media.ts">
-// quick-sync-scripts/src/author-media.ts
+<file path="quick-sync-scripts/dist/sessions-sync.js">
+"use strict";(()=>{var m=i=>console.log(`[${new Date().toISOString()}]`,i),K=["publish","draft","trash","private"],I="API-SYNC",R="last_synced";function V(i,e=I){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function q(i,e,s){let t=new Set;for(let o in i){let n=i[o];typeof n=="string"?t.add(o):(t.add(n.airtableIdField),n.airtableLinkField&&t.add(n.airtableLinkField))}return t.add("wp_id").add(e).add(s),Array.from(t)}function D(i,e){return e==null?null:Array.isArray(e)?e.map(s=>typeof s=="object"&&s!==null&&"name"in s?s.name:String(s)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function B(i,e){let s=i.parentTable,t={};for(let o in e){let n=e[o];if(typeof n=="string"){let d=i.getCellValue(o);n==="post_status"?t.post_status=d&&d.name?d.name.toLowerCase():typeof d=="string"?d.toLowerCase():null:t[n]=D(o,d);continue}let l=i.getCellValue(n.airtableIdField)||n.airtableLinkField&&i.getCellValue(n.airtableLinkField);l&&(t[n.wpKey]=l)}return t}async function J(i,e,s){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(s)}),o=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${o.slice(0,500)}`);return{data:JSON.parse(o),status:t.status}}async function C(i,e){var S,h,v,E,T,L,A;let{airtableTable:s,fieldMap:t,envEndpoints:o,skuField:n,titleField:l,allowedStatuses:d=K,secretName:b=I}=i;if(!n||!l)throw new Error("quickSync: skuField and titleField are required");let{recordId:_,env:g}=e;if(!_)throw new Error("Automation must pass {recordId}.");if(!g||!o[g]){let j=Object.keys(o).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${j}`)}let y=o[g],k=Math.floor(Date.now()/1e3);m(`Quick-Sync (${s}) start \u2013 epoch ${k}`);let $=await input.secret(b),M=V($,b),N=base.getTable(s),x=q(t,n,l),r=await N.selectRecordAsync(_,{fields:x});if(!r)throw new Error(`Record ${_} not found in ${s}`);let a=B(r,t);(S=a.sku)!=null||(a.sku=r.getCellValueAsString(n));let c=typeof t[l]=="string"?t[l]:null;c&&((h=a[c])!=null||(a[c]=r.getCellValueAsString(l)||r.name)),a[R]=k;let w=c&&a[c]?a[c]:r.getCellValueAsString(l)||r.name;a.post_status&&!d.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:r.id,sku:a.sku,wp_id:r.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),m(`POSTing to ${y}`);let{data:p,status:O}=await J(y,M,f),u=(T=(v=p.term_id)!=null?v:p.post_id)!=null?T:(E=p==null?void 0:p.data)==null?void 0:E.post_id,F=(L=p.action)!=null?L:"unknown",P=(A=p.message)!=null?A:"";output.set("syncStatus",p&&u?"Success":`HTTP_${O}`),output.set("action",F),output.set("message",P),output.set("postTitle",w),output.set("wpPostId",u!=null?u:null),m(`\u2705 WP ${F} \u2013  ${w}`)}var U={session_title:"post_title",session_slug:"post_name",session_description:"post_content",excerpt:"post_excerpt",session_permalink:"_custom_uri",session_sku:"sku",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},pdf_image_1:{airtableLinkField:"pdf_image_1_link",airtableIdField:"pdf_image_1_wp_id",wpKey:"pdf-image-1"},pdf_image_2:{airtableLinkField:"pdf_image_2_link",airtableIdField:"pdf_image_2_wp_id",wpKey:"manual2-image"},pdf_title_1:"custom-pdf-title-1",pdf_link_1:"link_ten",pdf_title_2:"custom-pdf-title-2",pdf_link_2:"link_eleven",alt_link_1:"link_five",youtube_link:"link_one",vimeo_link:"vimeo_link",spotify_podcast:"spotify-podcast-link",apple_podcast:"apple-podcast-link",available_on_request:"available-on-request",publish_timestamp:"last_published",last_synced:"last_synced",global_categories:"global-categories",series_category:"series-categories",topics_title:"topics",speaker_title:"author_speaker"},Q=input.config();C({airtableTable:"Sessions",skuField:"session_sku",titleField:"session_title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/sessions-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync"}},Q);})();
+</file>
+
+<file path="quick-sync-scripts/src/sessions-media.ts">
+// src/sessions-media.ts
 
 import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
 
-// This config object replaces all the hardcoded constants in the old script.
-const authorMediaConfig: MediaSyncConfig = {
+// The single, valid call to input.config()
+const scriptInput = input.config();
+
+const sessionsMediaConfig: MediaSyncConfig = {
   // 1. Your Airtable table name
-  airtableTable: 'author-speaker',
+  airtableTable: 'Sessions',
 
   // 2. WP Media endpoints per environment
   envMediaEndpoints: {
-    prod: 'https://four12global.com/wp-json/wp/v2/media',
-    // staging: 'https://your-staging-site.com/wp-json/wp/v2/media',
+    prod:    'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
   },
 
-  // 3. The fields you use to track media changes
-  lastModifiedField: 'media_last_modified',
-  publishTimestampField: 'media_publish_timestamp',
-
-  // 4. One entry for the profile image
-  //    This directly maps to the IMAGE_FIELDS from your old script.
-  imageFields: [
-    {
-      attachmentField:    'profile_image_attachment',
-      wpIdField:          'profile_image_wp_id',
-      wpUrlField:         'profile_image_link',
-      airtableCacheField: 'profile_image_external',
-      isMultiple:         false, // This is a single image field
-    },
-  ],
-};
-
-// The single, valid call to input.config() for the entire script run.
-const scriptInput = input.config();
-
-// This one line runs the entire sync process using the config above.
-mediaSync(authorMediaConfig, scriptInput);
-</file>
-
-<file path="quick-sync-scripts/src/author-sync.ts">
-// quick-sync-scripts/src/author-sync.ts
-
-import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
-
-// This is the single, valid call to input.config() for the entire script run.
-const scriptInput = input.config();
-
-// This FIELD_MAP is taken directly from your v1 script.
-// This is the most important part! We map to 'name' and 'slug', not 'post_title'.
-const AUTHOR_FIELD_MAP: FieldMap = {
-  // Airtable Field Name  ->  WP Payload Key for a TAXONOMY TERM
-  'author_title':       'name',
-  'author_slug':        'slug',
-  'author_description': 'as_description', // Your PHP plugin handles this
-  'profile_image_wp_id':'profile_image',  // This is just a meta field for the term
-
-  // Special case: The SKU is both a meta field and a top-level payload key.
-  // The helper automatically promotes the 'sku' value to the top level.
-  'sku':                'sku',
-};
-
-const authorSyncConfig: QuickSyncConfig = {
-  // Airtable table name
-  airtableTable: 'author-speaker',
-
-  // The unique identifier fields in Airtable
-  skuField: 'sku',
-  titleField: 'author_title', // Used for logging and fallback naming
-
-  // Your field map
-  fieldMap: AUTHOR_FIELD_MAP,
-
-  // Your endpoints
-  envEndpoints: {
-    prod: 'https://four12global.com/wp-json/four12/v1/author-sync',
-    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/four12/v1/author-sync' 
-  },
-};
-
-// Pass the scriptInput object to the helper function.
-quickSync(authorSyncConfig, scriptInput);
-</file>
-
-<file path="quick-sync-scripts/repomix-output.xml">
-This file is a merged representation of the entire codebase, combined into a single document by Repomix.
-
-<file_summary>
-This section contains a summary of this file.
-
-<purpose>
-This file contains a packed representation of the entire repository's contents.
-It is designed to be easily consumable by AI systems for analysis, code review,
-or other automated processes.
-</purpose>
-
-<file_format>
-The content is organized as follows:
-1. This summary section
-2. Repository information
-3. Directory structure
-4. Repository files (if enabled)
-5. Multiple file entries, each consisting of:
-  - File path as an attribute
-  - Full contents of the file
-</file_format>
-
-<usage_guidelines>
-- This file should be treated as read-only. Any changes should be made to the
-  original repository files, not this packed version.
-- When processing this file, use the file path to distinguish
-  between different files in the repository.
-- Be aware that this file may contain sensitive information. Handle it with
-  the same level of security as you would the original repository.
-</usage_guidelines>
-
-<notes>
-- Some files may have been excluded based on .gitignore rules and Repomix's configuration
-- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Files matching patterns in .gitignore are excluded
-- Files matching default ignore patterns are excluded
-- Files are sorted by Git change count (files with more changes are at the bottom)
-</notes>
-
-</file_summary>
-
-<directory_structure>
-src/
-  lib/
-    media-helpers.ts
-    sync-helpers.ts
-  series-media.ts
-  series-sync.ts
-env.d.ts
-package.json
-README.md
-tsconfig.json
-</directory_structure>
-
-<files>
-This section contains the contents of the repository's files.
-
-<file path="src/lib/media-helpers.ts">
-/*********************************************************************
- * media-helpers.ts  –  shared “step 1” image‑sync utilities
- *
- * Usage in an entry file (e.g. series‑media.ts):
- *
- *   import { mediaSync } from './lib/media-helpers';
- *
- *   mediaSync({
- *     airtableTable: 'Series',
- *     imageFields: IMAGE_FIELDS,
- *     envMediaEndpoints: {
- *       prod:    'https://four12global.com/wp-json/wp/v2/media',
- *       staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
- *     },
- *     lastModifiedField:  'media_last_modified',
- *     publishTimestampField: 'media_publish_timestamp',
- *   });
- *********************************************************************/
-
-import { buildBasicAuth } from './sync-helpers';          // already exists
-
-/* =========  Types  ========= */
-export interface ImageFieldConfig {
-  /** Airtable attachment field (array of objects with .url)              */
-  attachmentField:      string;
-  /** Field that stores WP media ID(s) (“123, 456”)                        */
-  wpIdField:            string;
-  /** Field that stores WP media URL(s)                                    */
-  wpUrlField:           string;
-  /** Cache of the original Airtable URL(s); lets us detect a changed img  */
-  airtableCacheField:   string;
-  /** Optional Airtable text field for external URL                        */
-  externalUrlField?:    string;
-  /** Multi‑upload?  Default false (= single attachment)                   */
-  isMultiple?: boolean;
-}
-
-export interface MediaSyncConfig {
-  airtableTable:          string;
-  envMediaEndpoints:      Record<string, string>;  // keyed by `env` input
-  imageFields:            ImageFieldConfig[];
-  lastModifiedField:      string;                  // “media_last_modified”
-  publishTimestampField:  string;                  // “media_publish_timestamp”
-  secretName?:            string;                  // default "API‑SYNC"
-}
-
-/* =========  Small helpers ========= */
-const log = (m: unknown) => console.log(`[${new Date().toISOString()}]`, m);
-const SECRET_DEFAULT = 'API-SYNC';
-
-async function download(attachment: any) {
-  const res = await fetch(attachment.url);
-  if (!res.ok) throw new Error(`↘ download ${attachment.url} → HTTP ${res.status}`);
-  return {
-    blob: await res.blob() as Blob,
-    filename:  attachment.filename ?? 'file',
-    contentType: res.headers.get('content-type') ?? 'application/octet-stream',
-    srcUrl: attachment.url,
-  };
-}
-
-async function uploadToWp(
-  endpoint: string,
-  basicAuth: string,
-  { blob, filename, contentType }: { blob: Blob; filename: string; contentType: string },
-) {
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${basicAuth}`,
-      'Content-Type': contentType,
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    },
-    body: blob,
-  });
-  const json = await res.json();
-  if (!res.ok || !json?.id) {
-    throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
-  }
-  return { id: String(json.id), url: json.source_url as string };
-}
-
-/* =========  Field‑by‑field processor ========= */
-async function processImageField(
-  record: any,
-  spec: ImageFieldConfig,
-  wpEndpoint: string,
-  basicAuth: string,
-  onError?: (err: Error) => void,
-) {
-  const a = record.getCellValue(spec.attachmentField) ?? [];
-  const prevWpIds   = (record.getCellValue(spec.wpIdField)  ?? '') as string;
-  const prevWpUrls  = (record.getCellValue(spec.wpUrlField) ?? '') as string;
-  const prevAirtUrl = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
-  const externalUrl = spec.externalUrlField
-    ? (record.getCellValueAsString?.(spec.externalUrlField) || '').trim()
-    : '';
-
-  // If no attachments but an external link exists → just use that
-  if (a.length === 0 && externalUrl) {
-    const changed = externalUrl !== prevWpUrls;
-    return {
-      wpIds:     null,
-      wpUrls:    externalUrl,
-      cacheUrls: null,
-      changed,
-    };
-  }
-
-  /* ----- No attachment?  Maybe clear stale WP refs ------ */
-  if (a.length === 0) {
-    if (prevWpIds || prevWpUrls || prevAirtUrl) {
-      return { wpIds: null, wpUrls: null, cacheUrls: null, changed: true };
-    }
-    return { changed: false };
-  }
-
-  /* ----- SINGLE attachment (99 % of your use‑cases) ----- */
-  if (!spec.isMultiple) {
-    const att = a[0];
-    const airtableUrl = att.url;
-    if (airtableUrl === prevAirtUrl && prevWpIds) {
-      // unchanged – skip
-      return { changed: false };
-    }
-    // New file or first run
-    try {
-      const { blob, filename, contentType } = await download(att);
-      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-      return { wpIds: id, wpUrls: url, cacheUrls: airtableUrl, changed: true };
-    } catch (err) {
-      if (onError) onError(err as Error);
-      log(`⚠️  single-upload failed ${att.url}: ${(err as Error).message}`);
-      return { changed: false };
-    }
-  }
-
-  /* ----- MULTI attachment ----- */
-  if (spec.isMultiple) {
-    const uploads: Array<{id:string; url:string}> = [];
-    for (const at of a) {
-      try {
-        const { blob, filename, contentType } = await download(at);
-        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-        uploads.push({ id, url });
-      } catch (err) {
-        if (onError) onError(err as Error);
-        log(`❌  multi‑upload failed ${at.url}: ${(err as Error).message}`);
-      }
-    }
-    if (uploads.length) {
-      return {
-        wpIds: uploads.map(u => u.id).join(","),
-        wpUrls: uploads.map(u => u.url).join(","),
-        cacheUrls: a.map((att: any) => att.url).join(","),
-        changed: true,
-      };
-    }
-    return { changed: false };
-  }
-  // fallback
-  return { changed: false };
-}
-
-/* =========  Orchestrator ========= */
-export async function mediaSync(cfg: MediaSyncConfig) {
-  let hadErrors = false;
-  const {
-    airtableTable,
-    envMediaEndpoints,
-    imageFields,
-    lastModifiedField,
-    publishTimestampField,
-    secretName = SECRET_DEFAULT,
-  } = cfg;
-
-  /* —— Inputs —— */
-  const { recordId, env = 'prod' } = input.config();
-  if (!recordId) throw new Error('Automation must pass {recordId}.');
-  const wpEndpoint = envMediaEndpoints[env] ?? envMediaEndpoints['prod'];
-  const basicAuth  = buildBasicAuth(await input.secret(secretName), secretName);
-
-  const table  = base.getTable(airtableTable);
-  const fields = [
-    lastModifiedField,
-    publishTimestampField,
-    ...imageFields.flatMap(f => [
-      f.attachmentField,
-      f.wpIdField,
-      f.wpUrlField,
-      f.airtableCacheField,
-    ]),
-  ];
-  const rec = await table.selectRecordAsync(recordId, { fields });
-  if (!rec) throw new Error(`Record ${recordId} not found.`);
-
-  /* —— Short‑circuit if nothing changed —— */
-  const lastMod  = rec.getCellValue(lastModifiedField)       as string | null;
-  const lastSync = rec.getCellValue(publishTimestampField)   as string | null;
-  if (lastMod && lastSync && Date.parse(lastMod) <= Date.parse(lastSync)) {
-    log('⏭ Images unchanged since last sync – skipping');
-    return;
-  }
-
-  /* —— Process every image spec —— */
-  const updates: Record<string, any> = {};
-  let anyChanges = false;
-
-  for (const spec of imageFields) {
-    try {
-      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, (err) => { hadErrors = true; });
-      if (r && r.changed) {
-        updates[spec.wpIdField]          = r.wpIds   ?? null;
-        updates[spec.wpUrlField]         = r.wpUrls  ?? null;
-        updates[spec.airtableCacheField] = r.cacheUrls ?? null;
-        anyChanges = true;
-      }
-    } catch (err) {
-      hadErrors = true;
-      log(`⚠️  ${spec.attachmentField}: ${(err as Error).message}`);
-      // do NOT touch fields on error – leave stale values
-    }
-  }
-
-  if (anyChanges) {
-    if (!hadErrors) {
-      updates[publishTimestampField] = new Date().toISOString();
-    } else {
-      log('⚠️  Skipping timestamp because at least one upload failed');
-    }
-    await table.updateRecordAsync(rec, updates);
-    log('✅ Media sync complete & fields updated');
-  } else {
-    log('✔ No media changes detected – nothing to write');
-  }
-}
-</file>
-
-<file path="src/lib/sync-helpers.ts">
-/*********************************************************************
- * sync-helpers.ts  –  shared utilities for Quick-Sync scripts
- * ---------------------------------------------------------------
- * Usage in a table-specific entry file (e.g. series-sync.ts):
- *
- *   import { quickSync } from './lib/sync-helpers';
- *
- *   quickSync({
- *     airtableTable: 'Series',
- *     fieldMap: FIELD_MAP,
- *     envEndpoints: {
- *       prod:    'https://four12global.com/wp-json/four12/v1/series-sync',
- *       staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
- *
- *     },
- *   });
- *********************************************************************/
-
-/* =========  Types  ========= */
-export interface MediaSpec {
-  airtableIdField: string;
-  airtableLinkField?: string;
-  wpKey: string;
-}
-export type FieldMap = Record<
-  string,
-  string | MediaSpec
->;
-
-export interface QuickSyncConfig {
-  airtableTable: string;
-  fieldMap: FieldMap;
-  envEndpoints: Record<string, string>;
-  skuField:   string;
-  titleField: string;
-  allowedStatuses?: string[];
-  secretName?:      string;
-}
-
-
-/* =========  Console helper ========= */
-const log = (msg: unknown) =>
-  console.log(`[${new Date().toISOString()}]`, msg);
-
-/* =========  Common constants ========= */
-const DEFAULT_ALLOWED_STATUSES = ['publish', 'draft', 'trash', 'private'];
-const DEFAULT_SECRET_NAME      = 'API-SYNC';
-const LAST_SYNCED_KEY          = 'last_synced';
-
-/* =========  Auth helper ========= */
-export function buildBasicAuth(secret: string, secretName = DEFAULT_SECRET_NAME) {
-  if (!secret || !secret.includes(':'))
-    throw new Error(`Secret "${secretName}" must be "user:app-password".`);
-  return Buffer.from(secret).toString('base64');
-}
-
-/* =========  Airtable field utils ========= */
-export function fieldsToFetch(
-  map: FieldMap,
-  skuField: string,
-  titleField: string,
-): string[] {
-  const s = new Set<string>();
-  for (const k in map) {
-    const v = map[k];
-    if (typeof v === 'string') s.add(k);
-    else {
-      s.add(v.airtableIdField);
-      if (v.airtableLinkField) s.add(v.airtableLinkField);
-    }
-  }
-  s.add('wp_id').add(skuField).add(titleField);
-  return Array.from(s);
-}
-
-/* Clean & coerce values so WP gets primitives */
-export function coerceValue(field: string, raw: any): any {
-  if (raw == null) return null;
-
-  // multiselects, linked records, lookups → array ⇢ names/strings
-  if (Array.isArray(raw)) {
-    return raw.map(x =>
-      (typeof x === 'object' && x !== null && 'name' in x)
-        ? x.name
-        : String(x)
-    );
-  }
-
-  // single attachment → url
-  if (typeof raw === 'object' && raw.url)
-    return raw.url;
-
-  // single-select object → name
-  if (typeof raw === 'object' && raw !== null && 'name' in raw)
-    return raw.name;
-
-  return raw; // plain string/number/date already fine
-}
-
-/* Build WP `fields` object */
-export function buildSyncFields(record: any, map: FieldMap): Record<string, any> {
-  const table = record.parentTable;         // Airtable API
-  const fields: Record<string, any> = {};
-
-  for (const src in map) {
-    const mapping = map[src];
-
-    // Simple 1⇢1 mapping
-    if (typeof mapping === 'string') {
-      const raw = record.getCellValue(src);
-      if (mapping === 'post_status') {
-        // status handled later (allowedStatuses check)
-        fields.post_status = raw && raw.name ? raw.name.toLowerCase() :
-                             typeof raw === 'string' ? raw.toLowerCase() : null;
-      } else {
-        fields[mapping] = coerceValue(src, raw);
-      }
-      continue;
-    }
-
-    // Media object
-    const val = record.getCellValue(mapping.airtableIdField) ||
-                (mapping.airtableLinkField && record.getCellValue(mapping.airtableLinkField));
-    if (val) fields[mapping.wpKey] = val;
-  }
-
-  return fields;
-}
-
-/* =========  WP fetch helper ========= */
-export async function postToWp(
-  url: string,
-  authB64: string,
-  payload: any
-) {
-  const res = await fetch(url, {
-    method:  'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization:  `Basic ${authB64}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    // Even on error, it's useful to return the status
-    throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
-  }
-  
-  // Return an object with both the parsed data and the status code
-  return {
-    data: JSON.parse(text),
-    status: res.status
-  };
-}
-
-/* =========  Main orchestrator ========= */
-export async function quickSync(cfg: QuickSyncConfig) {
-  const {
-    airtableTable,
-    fieldMap,
-    envEndpoints,
-    skuField,
-    titleField,
-    allowedStatuses = DEFAULT_ALLOWED_STATUSES,
-    secretName     = DEFAULT_SECRET_NAME,
-  } = cfg;
-  if (!skuField || !titleField)
-    throw new Error('quickSync: skuField and titleField are required');
-
-  /* ── Inputs ── */
-  const { recordId, env = 'prod' } = input.config();
-  if (!recordId) throw new Error('Automation must pass {recordId}.');
-  const wpUrl = envEndpoints[env] || envEndpoints['prod'];
-  if (!wpUrl) throw new Error('wpUrl must be provided in config.');
-
-  const syncEpoch = Math.floor(Date.now() / 1000);
-  log(`Quick-Sync (${airtableTable}) start – epoch ${syncEpoch}`);
-
-  /* ── Auth ── */
-  const authSecret = await input.secret(secretName);
-  const authB64    = buildBasicAuth(authSecret, secretName);
-
-  /* ── Fetch record ── */
-  const table  = base.getTable(airtableTable);
-  const fieldsNeeded = fieldsToFetch(fieldMap, skuField, titleField);
-  const record = await table.selectRecordAsync(recordId, { fields: fieldsNeeded });
-  if (!record) throw new Error(`Record ${recordId} not found in ${airtableTable}`);
-
-  /* ── Build fields ── */
-  const fields = buildSyncFields(record, fieldMap);
-
-  // Ensure SKU & title exist
-  fields.sku        ??= record.getCellValueAsString(skuField);
-  fields.post_title ??= record.getCellValueAsString(titleField) || record.name;
-  fields[LAST_SYNCED_KEY] = syncEpoch;
-
-  // post_status whitelist
-  if (fields.post_status && !allowedStatuses.includes(fields.post_status))
-    delete fields.post_status;
-
-  /* ── Assemble payload ── */
-  const payload = {
-    airtableRecordId: record.id,
-    sku:   fields.sku,
-    wp_id: record.getCellValue('wp_id') || null,
-    fields,
-  };
-  console.log(JSON.stringify(payload, null, 2).substring(0, 5000));
-  output.set(
-    'payloadSent',
-    JSON.stringify(payload, null, 2).slice(0, 2500)
-  );
-
-  
-/* ── POST to WP ── */
-log(`POSTing to ${wpUrl}`);
-// Use destructuring to get both `data` and `status` from the response
-const { data, status } = await postToWp(wpUrl, authB64, payload);
-
-/* ── Handle response ── */
-const postId  = data.post_id ?? data?.data?.post_id;
-const action  = data.action  ?? 'unknown';
-const message = data.message ?? '';
-
-output.set(
-  'syncStatus',
-  // Use the `status` variable we just received
-  data && postId ? 'Success' : `HTTP_${status}`
-);
-output.set('action',     action);
-output.set('message',    message);
-output.set('postTitle',  fields.post_title);
-output.set('wpPostId',   postId);
-log(`✅ WP ${action} –  ${fields.post_title}`);
-}
-</file>
-
-<file path="src/series-media.ts">
-// src/series-media.ts
-
-import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
-
-const seriesMediaConfig: MediaSyncConfig = {
-  // 1. Your Airtable table name
-  airtableTable: 'Series',
-
-  // 2. WP Media endpoints per environment
-  envMediaEndpoints: {
-    prod: 'https://four12global.com/wp-json/wp/v2/media',
-    // staging: 'https://your‑staging‑site.cloudwaysapps.com/wp-json/wp/v2/media',
-  },
-
-  // 3. The fields you use in Airtable to track media changes
+  // 3. Fields that track media-related updates
   lastModifiedField:     'media_last_modified',
   publishTimestampField: 'media_publish_timestamp',
 
-  // 4. One entry per image slot in your CPT
+  // 4. One entry per image slot in the CPT
   imageFields: [
     {
       attachmentField:    'featured_image_attachment',
@@ -763,40 +205,39 @@ const seriesMediaConfig: MediaSyncConfig = {
       isMultiple:         false,
     },
     {
-      attachmentField:    'primary_cta_image_attachment',
-      wpIdField:          'primary_cta_image_wp_id',
-      wpUrlField:         'primary_cta_image_link',
-      airtableCacheField: 'primary_cta_image_external',
+      attachmentField:    'pdf_image_1_attachment',
+      wpIdField:          'pdf_image_1_wp_id',
+      wpUrlField:         'pdf_image_1_link',
+      airtableCacheField: 'pdf_image_1_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'pdf_image_2_attachment',
+      wpIdField:          'pdf_image_2_wp_id',
+      wpUrlField:         'pdf_image_2_link',
+      airtableCacheField: 'pdf_image_2_external',
       isMultiple:         false,
     },
   ],
 };
 
-mediaSync(seriesMediaConfig);
+// Fire it off
+mediaSync(sessionsMediaConfig, scriptInput);
 </file>
 
-<file path="src/series-sync.ts">
+<file path="quick-sync-scripts/src/sessions-sync.ts">
 import { quickSync } from './lib/sync-helpers';
 
 const FIELD_MAP = {
   /* ── Core WP fields ───────────────────────────── */
-  series_title:      'post_title',
-  series_slug:       'post_name',
-  long_date:         'post_date',
-  website_status:    'post_status',
-  series_sku:        'sku',
-  excerpt:           'post_excerpt',
+  session_title:      'post_title',
+  session_slug:       'post_name',
+  session_description:'post_content',
+  excerpt:            'post_excerpt',
+  session_permalink:  '_custom_uri',
+  session_sku:        'sku',
 
-  /* Custom permalink (Permalink Manager) */
-  series_permalink:  'custom_permalink_uri',
-
-  /* ── Taxonomies ──────────────────────────────── */
-  global_categories:      'global-categories',
-  series_filter_category: 'series-categories',
-  topics:                 'topics',
-  series_template:        'series-templates',
-
-  /* ── ACTIVE media (prefer ID, fallback URL) ──── */
+  /* ── Media fields (ID preferred, fallback to URL) ─ */
   featured_image: {
     airtableIdField:   'featured_image_wp_id',
     airtableLinkField: 'featured_image_link',
@@ -817,210 +258,51 @@ const FIELD_MAP = {
     airtableLinkField: 'banner_image_link',
     wpKey: 'banner-image',
   },
-  primary_cta_image: {
-    airtableIdField:   'primary_cta_image_wp_id',
-    airtableLinkField: 'primary_cta_image_link',
-    wpKey: 'manual1-image',
+  pdf_image_1: {
+    airtableLinkField: 'pdf_image_1_link',
+    airtableIdField:   'pdf_image_1_wp_id',
+    wpKey: 'pdf-image-1',
+  },
+  pdf_image_2: {
+    airtableLinkField: 'pdf_image_2_link',
+    airtableIdField:   'pdf_image_2_wp_id',
+    wpKey: 'manual2-image',
   },
 
-  /* ── Meta / CTA / SEO etc. ───────────────────── */
-  series_description_title: 'series-description_title',
-  series_description:       'series-description',
-  who_is_it_for:            'series-who-is-it-for',
-  series_purpose:           'series-purpose',
-  series_colour_1:          'series-colour-1',
-  series_colour_2:          'series-colour-2',
-  print_pdf_link:           'link_five',
-  custom_pdf_link:          'link_ten',
-  youtube_playlist:         'youtube-playlist-link',
-  spotify_playlist:         'spotify-playlist-link',
-  apple_playlist:           'apple-playlist-link',
-  highlights_video:         'highlights-video',
+  /* ── Meta fields ───────────────────────────── */
+  pdf_title_1:           'custom-pdf-title-1',
+  pdf_link_1:            'link_ten',
+  pdf_title_2:           'custom-pdf-title-2',
+  pdf_link_2:            'link_eleven',
+  alt_link_1:            'link_five',
+  youtube_link:          'link_one',
+  vimeo_link:            'vimeo_link',
+  spotify_podcast:       'spotify-podcast-link',
+  apple_podcast:         'apple-podcast-link',
+  available_on_request:  'available-on-request',
+  publish_timestamp:     'last_published',
+  last_synced:           'last_synced',
 
-  /* CTA blocks */
-  primary_cta_heading: 'manual1-title',
-  primary_cta_title:   'manual1-link-title',
-  primary_cta_link:    'manual1-link',
-  secondary_cta_heading: 'manual2-title',
-  secondary_cta_title:   'manual2-link-title',
-  secondary_cta_link:    'manual2-link',
-
-  seo_description:     '_aioseo_description',
-  session_title:       'custom-session-title',
-  sessions_list:       'series-episode-list',
-  session_list_1:      'series-episode-list-more',
-  session_list_2:      'series-episode-list-3',
-  session_list_3:      'series-episode-list-4',
+  /* ── Taxonomies ─────────────────────────────── */
+  global_categories: 'global-categories',
+  series_category:    'series-categories',
+  topics_title:       'topics',
+  speaker_title:      'author_speaker',
 };
 
+const scriptInput = input.config();
+
 quickSync({
-  /* ----- Airtable table name ----- */
-  airtableTable: 'Series',
+  airtableTable: 'Sessions',
+  skuField:      'session_sku',
+  titleField:    'session_title',
 
-  /* ----- Airtable field that holds your permanent SKU & title ----- */
-  skuField:   'series_sku',
-  titleField: 'series_title',
-
-  /* ----- END per‑CPT overrides ----- */
   fieldMap: FIELD_MAP,
   envEndpoints: {
-    prod:     'https://four12global.com/wp-json/four12/v1/series-sync',
-    staging:  'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
+    prod:    'https://four12global.com/wp-json/four12/v1/sessions-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync',
   }
-});
-</file>
-
-<file path="env.d.ts">
-// Airtable scripting globals (injected at runtime)
-declare const input:  any;
-declare const output: any;
-declare const base:   any;
-</file>
-
-<file path="package.json">
-{
-  "name": "f12-quick-sync",
-  "version": "1.0.0",
-  "description": "Airtable → WordPress Quick-Sync scripts",
-  "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
-  },
-
-  "scripts": {
-    "check": "tsc --noEmit",
-    "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
-    "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
-  },
-
-  "devDependencies": {
-    "esbuild": "^0.25.8",
-    "typescript": "^5.8.3",
-    "@types/node": "^20.11.0"
-  }
-}
-</file>
-
-<file path="README.md">
-# Airtable Script Templates for Quick-Sync
-
-This directory contains master templates for the JavaScript code that runs inside Airtable Automations. Using these templates ensures a consistent, reliable, and easy-to-extend synchronization process.
-
-**Do not edit the template files directly.** Always copy their contents to create new scripts for each CPT or Taxonomy you want to sync.
-
-## The Two-Step Sync Process
-
-For any given record, the sync is a two-step process within Airtable Automations:
-
-1.  **Media Sync (Step 1):** The `TEMPLATE_MediaScript.js` runs first. Its only job is to upload image attachments to the WordPress Media Library and write the resulting WordPress Media IDs back into the Airtable record.
-
-2.  **Data Sync (Step 2):** The `TEMPLATE_QuickSyncScript.js` runs second. It gathers all the record's data—including the Media IDs from Step 1—and sends the complete package to the custom WordPress endpoint.
-
-This two-step approach is crucial because it ensures that when the main data sync happens, we are sending stable WordPress Media IDs, not temporary URLs.
-
----
-
-## How to Use `TEMPLATE_MediaScript.js`
-
-Follow these steps to set up the media sync for a new CPT (e.g., "Events").
-
-1.  **Copy Template:** Open `TEMPLATE_MediaScript.js` and copy its entire contents.
-2.  **Create Airtable Script:** In your Airtable base, go to **Automations**. Create a new automation or edit an existing one. Add a "Run a script" action.
-3.  **Paste Code:** Paste the copied code into the Airtable script editor.
-4.  **Add Input Variable:** The script requires one input variable. In the left panel, add a variable named `recordId` and set its value to the `Airtable record ID` from the automation's trigger step.
-5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block at the top of the script.
-    ```javascript
-    // 1. WordPress Base URL
-    const WP_BASE_URL = "https://four12global.com";
-
-    // 2. Airtable Table Name
-    const TABLE_NAME = "Events"; // Your CPT's table name
-
-    // 3. Secret Name
-    const API_SECRET_NAME = "API-SYNC";
-
-    // 4. Image Field Configurations
-    const IMAGE_FIELD_CONFIGS = [
-      {
-        airtableAttachmentField: "event_featured_image", // Attachment field in your Events table
-        wpIdField: "event_featured_image_wp_id",         // Number field to store the WP ID
-        wpLinkField: "event_featured_image_link",        // URL/Text field for the WP URL
-        externalCacheField: "event_featured_image_ext",  // URL/Text field for the Airtable URL
-      }
-      // Add more objects if the Event CPT has more images
-    ];
-
-    // 5. Control Fields
-    const CONTROL_FIELDS = {
-      lastModifiedField: "event_media_last_modified", // A "Last Modified Time" field watching your attachment fields
-      publishTimestampField: "event_media_publish_ts",  // A "Date" field
-    };
-    ```
-6.  **Set Secret:** Ensure your automation has access to the `API-SYNC` secret containing your WordPress `username:application_password`.
-
----
-
-## How to Use `TEMPLATE_QuickSyncScript.js`
-
-Follow these steps to set up the main data sync. This action should run **after** the Media Script action in the same automation.
-
-1.  **Copy Template:** Open `TEMPLATE_QuickSyncScript.js` and copy its entire contents.
-2.  **Create Airtable Script:** Add a new "Run a script" action to your automation.
-3.  **Paste Code:** Paste the copied code into the script editor.
-4.  **Add Input Variable:** Just like before, add the `recordId` input variable.
-5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block. The `FIELD_MAP` is the most important part.
-    ```javascript
-    // 1. WordPress Base URL
-    const WP_BASE_URL = "https://four12global.com";
-
-    // 2. The specific route for your sync endpoint
-    const WP_ROUTE_SUFFIX = "/wp-json/four12/v1/event-sync"; // The endpoint for your CPT
-
-    // 3. Airtable Table Name
-    const TABLE_NAME = "Events";
-
-    // 4. Secret Name
-    const API_SECRET_NAME = "API-SYNC";
-
-    // 5. The Airtable field for the unique SKU.
-    const SKU_FIELD = "event_sku";
-
-    // 6. The Airtable field for the WordPress Post ID.
-    const WP_ID_FIELD = "wp_id";
-
-    // 7. Field Map: 'Airtable Field Name': 'wp_payload_key'
-    const FIELD_MAP = {
-      'event_title':          'post_title',
-      'event_slug':           'post_name',
-      'event_categories':     'event-categories',
-      'event_featured_image_wp_id': '_thumbnail_id', // Use the ID field from the media script!
-      'event_description':    'event-description',
-    };
-    ```
-
-## Debugging
-
--   Always check the **Run history** of your Airtable automation.
--   The script logs its progress to the console, which is visible in the run history.
--   The script also uses `output.set()` to provide structured results, like `payloadPreview` and `wpResponse`, which are invaluable for troubleshooting.
-</file>
-
-<file path="tsconfig.json">
-{
-    "compilerOptions": {
-      "target": "es2017",
-      "lib": ["es2017", "dom"],
-      "module": "commonjs",
-      "strict": true,
-      "esModuleInterop": true,
-      "outDir": "dist"
-    },
-    "include": ["src/**/*", "env.d.ts"]
-  }
-</file>
-
-</files>
+}, scriptInput);
 </file>
 
 <file path="quick-sync-plugin/modules/author-sync.php">
@@ -4636,15 +3918,272 @@ Use the wp_id Fast-Path: Ensure your Airtable scripts store the post_id/term_id 
 Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remember to add its key to the module's $allowed_meta_keys array.
 </file>
 
-<file path="quick-sync-scripts/dist/series-media.js">
-"use strict";(()=>{var A="API-SYNC";function M(e,t=A){if(!e||!e.includes(":"))throw new Error(`Secret "${t}" must be "user:app-password".`);return Buffer.from(e).toString("base64")}var f=e=>console.log(`[${new Date().toISOString()}]`,e),v="API-SYNC";async function U(e){var r,d;let t=await fetch(e.url);if(!t.ok)throw new Error(`\u2198 download ${e.url} \u2192 HTTP ${t.status}`);return{blob:await t.blob(),filename:(r=e.filename)!=null?r:"file",contentType:(d=t.headers.get("content-type"))!=null?d:"application/octet-stream",srcUrl:e.url}}async function k(e,t,{blob:r,filename:d,contentType:c}){let a=await fetch(e,{method:"POST",headers:{Authorization:`Basic ${t}`,"Content-Type":c,"Content-Disposition":`attachment; filename="${d}"`},body:r}),l=await a.json();if(!a.ok||!(l!=null&&l.id))throw new Error(`\u2197 WP upload failed ${a.status}: ${JSON.stringify(l).slice(0,200)}`);return{id:String(l.id),url:l.source_url}}async function x(e,t,r,d,c){var b,S,C,F,T;let a=(b=e.getCellValue(t.attachmentField))!=null?b:[],l=(S=e.getCellValue(t.wpIdField))!=null?S:"",m=(C=e.getCellValue(t.wpUrlField))!=null?C:"",y=(F=e.getCellValue(t.airtableCacheField))!=null?F:"",p=t.externalUrlField?(((T=e.getCellValueAsString)==null?void 0:T.call(e,t.externalUrlField))||"").trim():"";if(a.length===0&&p)return{wpIds:null,wpUrls:p,cacheUrls:null,changed:p!==m};if(a.length===0)return l||m||y?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!t.isMultiple){let i=a[0],n=i.url;if(n===y&&l)return{changed:!1};try{let{blob:s,filename:u,contentType:w}=await U(i),{id:h,url:_}=await k(r,d,{blob:s,filename:u,contentType:w});return{wpIds:h,wpUrls:_,cacheUrls:n,changed:!0}}catch(s){return c&&c(s),f(`\u26A0\uFE0F  single-upload failed ${i.url}: ${s.message}`),{changed:!1}}}if(t.isMultiple){let i=[];for(let n of a)try{let{blob:s,filename:u,contentType:w}=await U(n),{id:h,url:_}=await k(r,d,{blob:s,filename:u,contentType:w});i.push({id:h,url:_})}catch(s){c&&c(s),f(`\u274C  multi\u2011upload failed ${n.url}: ${s.message}`)}return i.length?{wpIds:i.map(n=>n.id).join(","),wpUrls:i.map(n=>n.url).join(","),cacheUrls:a.map(n=>n.url).join(","),changed:!0}:{changed:!1}}return{changed:!1}}async function $(e,t){var h,_,I,E;let r=!1,{airtableTable:d,envMediaEndpoints:c,imageFields:a,lastModifiedField:l,publishTimestampField:m,secretName:y=v}=e,{recordId:p,env:b="prod"}=t;if(!p)throw new Error("Automation must pass {recordId}.");let S=(h=c[b])!=null?h:c.prod,C=M(await input.secret(y),y),F=base.getTable(d),T=[l,m,...a.flatMap(o=>[o.attachmentField,o.wpIdField,o.wpUrlField,o.airtableCacheField])],i=await F.selectRecordAsync(p,{fields:T});if(!i)throw new Error(`Record ${p} not found.`);let n=i.getCellValue(l),s=i.getCellValue(m);if(n&&s&&Date.parse(n)<=Date.parse(s)){f("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let u={},w=!1;for(let o of a)try{let g=await x(i,o,S,C,L=>{r=!0});g&&g.changed&&(u[o.wpIdField]=(_=g.wpIds)!=null?_:null,u[o.wpUrlField]=(I=g.wpUrls)!=null?I:null,u[o.airtableCacheField]=(E=g.cacheUrls)!=null?E:null,w=!0)}catch(g){r=!0,f(`\u26A0\uFE0F  ${o.attachmentField}: ${g.message}`)}w?(r?f("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):u[m]=new Date().toISOString(),await F.updateRecordAsync(i,u),f("\u2705\xA0Media sync complete & fields updated")):f("\u2714\xA0No media changes detected \u2013 nothing to write")}var N=input.config(),V={airtableTable:"Series",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"primary_cta_image_attachment",wpIdField:"primary_cta_image_wp_id",wpUrlField:"primary_cta_image_link",airtableCacheField:"primary_cta_image_external",isMultiple:!1}]};$(V,N);})();
+<file path="quick-sync-scripts/dist/author-media.js">
+"use strict";(()=>{var v="API-SYNC";function I(t,i=v){if(!t||!t.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}var p=t=>console.log(`[${new Date().toISOString()}]`,t),A="API-SYNC";async function k(t){var c,o;let i=await fetch(t.url);if(!i.ok)throw new Error(`\u2198 download ${t.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(c=t.filename)!=null?c:"file",contentType:(o=i.headers.get("content-type"))!=null?o:"application/octet-stream",srcUrl:t.url}}async function U(t,i,{blob:c,filename:o,contentType:m},d){p(`Uploading ${o}${d?` for record ${d}`:""} \u2026`);try{let n=await fetch(t,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${o}"`},body:c}),s=await n.json();if(!n.ok||!(s!=null&&s.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(s).slice(0,200)}`);return p(`\u2705 Uploaded ${o} \u2192 ${s.source_url} (wpId: ${s.id})`),{id:String(s.id),url:s.source_url}}catch(n){throw console.error(`\u274C Upload failed ${o}${d?` for record ${d}`:""}: ${n.message}`),n}}async function x(t,i,c,o,m,d){var _,$,E,w,C,T,h;let n=(_=t.getCellValue(i.attachmentField))!=null?_:[],s=($=t.getCellValue(i.wpIdField))!=null?$:"",F=(E=t.getCellValue(i.wpUrlField))!=null?E:"",f=(w=t.getCellValue(i.airtableCacheField))!=null?w:"",g=(f!=null?f:"").split(",").filter(Boolean),S=i.externalUrlField?(((C=t.getCellValueAsString)==null?void 0:C.call(t,i.externalUrlField))||"").trim():"";if(n.length===0&&S)return{wpIds:null,wpUrls:S,cacheUrls:null,changed:S!==F};if(n.length===0)return s||F||f?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let l=n[0];if(g.includes(l.id)&&s)return p(`\u21A9\uFE0F Reusing ${(T=l.filename)!=null?T:"file"} (wpId: ${s})`),{changed:!1};try{let{blob:a,filename:u,contentType:y}=await k(l),{id:e,url:r}=await U(c,o,{blob:a,filename:u,contentType:y},m);return{wpIds:e,wpUrls:r,cacheUrls:l.id,changed:!0}}catch(a){return d&&d(a),p(`\u26A0\uFE0F  single-upload failed ${l.url}: ${a.message}`),{changed:!1}}}if(i.isMultiple){let l=[];for(let a of n){if(g.includes(a.id)){p(`\u21A9\uFE0F Reusing ${(h=a.filename)!=null?h:"file"}\u2026`);continue}try{let{blob:u,filename:y,contentType:e}=await k(a),{id:r,url:b}=await U(c,o,{blob:u,filename:y,contentType:e},m);l.push({id:r,url:b,airtableId:a.id})}catch(u){d&&d(u),p(`\u274C  multi\u2011upload failed ${a.url}: ${u.message}`)}}if(l.length||n.some(a=>g.includes(a.id))){let a=n.filter(e=>g.includes(e.id)).map(e=>e.id),u=s.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)}),y=F.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)});return{wpIds:[...u,...l.map(e=>e.id)].join(","),wpUrls:[...y,...l.map(e=>e.url)].join(","),cacheUrls:[...a,...l.map(e=>e.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function M(t,i){var a,u,y;let c=!1,{airtableTable:o,envMediaEndpoints:m,imageFields:d,lastModifiedField:n,publishTimestampField:s,secretName:F=A}=t,{recordId:f,env:g}=i;if(!f)throw new Error("Automation must pass {recordId}.");if(!g||!m[g]){let e=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${e}`)}let S=m[g],_=I(await input.secret(F),F),$=base.getTable(o),E=[n,s,...d.flatMap(e=>[e.attachmentField,e.wpIdField,e.wpUrlField,e.airtableCacheField])],w=await $.selectRecordAsync(f,{fields:E});if(!w)throw new Error(`Record ${f} not found.`);let C=w.getCellValue(n),T=w.getCellValue(s);if(C&&T&&Date.parse(C)<=Date.parse(T)){p("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let h={},l=!1;for(let e of d)try{let r=await x(w,e,S,_,f,b=>{c=!0});r&&r.changed&&(h[e.wpIdField]=(a=r.wpIds)!=null?a:null,h[e.wpUrlField]=(u=r.wpUrls)!=null?u:null,h[e.airtableCacheField]=(y=r.cacheUrls)!=null?y:null,l=!0)}catch(r){c=!0,p(`\u26A0\uFE0F  ${e.attachmentField}: ${r.message}`)}l?(c?p("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):h[s]=new Date().toISOString(),await $.updateRecordAsync(w,h),p("\u2705\xA0Media sync complete & fields updated")):p("\u2714\xA0No media changes detected \u2013 nothing to write")}var N={airtableTable:"author-speaker",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"profile_image_attachment",wpIdField:"profile_image_wp_id",wpUrlField:"profile_image_link",airtableCacheField:"profile_image_external",isMultiple:!1}]},R=input.config();M(N,R);})();
 </file>
 
-<file path="quick-sync-scripts/dist/series-sync.js">
-"use strict";(()=>{var y=i=>console.log(`[${new Date().toISOString()}]`,i),j=["publish","draft","trash","private"],A="API-SYNC",R="last_synced";function V(i,e=A){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function K(i,e,n){let t=new Set;for(let r in i){let s=i[r];typeof s=="string"?t.add(r):(t.add(s.airtableIdField),s.airtableLinkField&&t.add(s.airtableLinkField))}return t.add("wp_id").add(e).add(n),Array.from(t)}function D(i,e){return e==null?null:Array.isArray(e)?e.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function q(i,e){let n=i.parentTable,t={};for(let r in e){let s=e[r];if(typeof s=="string"){let c=i.getCellValue(r);s==="post_status"?t.post_status=c&&c.name?c.name.toLowerCase():typeof c=="string"?c.toLowerCase():null:t[s]=D(r,c);continue}let o=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);o&&(t[s.wpKey]=o)}return t}async function B(i,e,n){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(n)}),r=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${r.slice(0,500)}`);return{data:JSON.parse(r),status:t.status}}async function I(i,e){var F,h,E,T,L,v;let{airtableTable:n,fieldMap:t,envEndpoints:r,skuField:s,titleField:o,allowedStatuses:c=j,secretName:m=A}=i;if(!s||!o)throw new Error("quickSync: skuField and titleField are required");let{recordId:_,env:g}=e;if(!_)throw new Error("Automation must pass {recordId}.");if(!g||!r[g]){let P=Object.keys(r).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${P}`)}let b=r[g],k=Math.floor(Date.now()/1e3);y(`Quick-Sync (${n}) start \u2013 epoch ${k}`);let C=await input.secret(m),$=V(C,m),M=base.getTable(n),N=K(t,s,o),l=await M.selectRecordAsync(_,{fields:N});if(!l)throw new Error(`Record ${_} not found in ${n}`);let a=q(l,t);(F=a.sku)!=null||(a.sku=l.getCellValueAsString(s));let p=typeof t[o]=="string"?t[o]:null;p&&((h=a[p])!=null||(a[p]=l.getCellValueAsString(o)||l.name)),a[R]=k;let w=p&&a[p]?a[p]:l.getCellValueAsString(o)||l.name;a.post_status&&!c.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:l.id,sku:a.sku,wp_id:l.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),y(`POSTing to ${b}`);let{data:d,status:x}=await B(b,$,f),u=(T=d.post_id)!=null?T:(E=d==null?void 0:d.data)==null?void 0:E.post_id,S=(L=d.action)!=null?L:"unknown",O=(v=d.message)!=null?v:"";output.set("syncStatus",d&&u?"Success":`HTTP_${x}`),output.set("action",S),output.set("message",O),output.set("postTitle",w),output.set("wpPostId",u!=null?u:null),y(`\u2705 WP ${S} \u2013  ${w}`)}var J={series_title:"post_title",series_slug:"post_name",long_date:"post_date",website_status:"post_status",series_sku:"sku",excerpt:"post_excerpt",series_permalink:"custom_permalink_uri",global_categories:"global-categories",series_filter_category:"series-categories",topics:"topics",series_template:"series-templates",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},primary_cta_image:{airtableIdField:"primary_cta_image_wp_id",airtableLinkField:"primary_cta_image_link",wpKey:"manual1-image"},series_description_title:"series-description_title",series_description:"series-description",who_is_it_for:"series-who-is-it-for",series_purpose:"series-purpose",series_colour_1:"series-colour-1",series_colour_2:"series-colour-2",print_pdf_link:"link_five",custom_pdf_link:"link_ten",youtube_playlist:"youtube-playlist-link",spotify_playlist:"spotify-playlist-link",apple_playlist:"apple-playlist-link",highlights_video:"highlights-video",primary_cta_heading:"manual1-title",primary_cta_title:"manual1-link-title",primary_cta_link:"manual1-link",secondary_cta_heading:"manual2-title",secondary_cta_title:"manual2-link-title",secondary_cta_link:"manual2-link",seo_description:"_aioseo_description",session_title:"custom-session-title",sessions_list:"series-episode-list",session_list_1:"series-episode-list-more",session_list_2:"series-episode-list-3",session_list_3:"series-episode-list-4"},U=input.config();I({airtableTable:"Series",skuField:"series_sku",titleField:"series_title",fieldMap:J,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/series-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync"}},U);})();
+<file path="quick-sync-scripts/dist/author-sync.js">
+"use strict";(()=>{var S=n=>console.log(`[${new Date().toISOString()}]`,n),V=["publish","draft","trash","private"],L="API-SYNC",x="last_synced";function D(n,t=L){if(!n||!n.includes(":"))throw new Error(`Secret "${t}" must be "user:app-password".`);return Buffer.from(n).toString("base64")}function Q(n,t,s){let e=new Set;for(let r in n){let i=n[r];typeof i=="string"?e.add(r):(e.add(i.airtableIdField),i.airtableLinkField&&e.add(i.airtableLinkField))}return e.add("wp_id").add(t).add(s),Array.from(e)}function U(n,t){return t==null?null:Array.isArray(t)?t.map(s=>typeof s=="object"&&s!==null&&"name"in s?s.name:String(s)):typeof t=="object"&&t.url?t.url:typeof t=="object"&&t!==null&&"name"in t?t.name:t}function q(n,t){let s=n.parentTable,e={};for(let r in t){let i=t[r];if(typeof i=="string"){let c=n.getCellValue(r);i==="post_status"?e.post_status=c&&c.name?c.name.toLowerCase():typeof c=="string"?c.toLowerCase():null:e[i]=U(r,c);continue}let a=n.getCellValue(i.airtableIdField)||i.airtableLinkField&&n.getCellValue(i.airtableLinkField);a&&(e[i.wpKey]=a)}return e}async function B(n,t,s){let e=await fetch(n,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${t}`},body:JSON.stringify(s)}),r=await e.text();if(!e.ok)throw new Error(`HTTP ${e.status}: ${r.slice(0,500)}`);return{data:JSON.parse(r),status:e.status}}async function M(n,t){var m,F,T,E,A,C,v;let{airtableTable:s,fieldMap:e,envEndpoints:r,skuField:i,titleField:a,allowedStatuses:c=V,secretName:b=L}=n;if(!i||!a)throw new Error("quickSync: skuField and titleField are required");let{recordId:g,env:f}=t;if(!g)throw new Error("Automation must pass {recordId}.");if(!f||!r[f]){let j=Object.keys(r).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${j}`)}let w=r[f],h=Math.floor(Date.now()/1e3);S(`Quick-Sync (${s}) start \u2013 epoch ${h}`);let $=await input.secret(b),I=D($,b),N=base.getTable(s),O=Q(e,i,a),l=await N.selectRecordAsync(g,{fields:O});if(!l)throw new Error(`Record ${g} not found in ${s}`);let o=q(l,e);(m=o.sku)!=null||(o.sku=l.getCellValueAsString(i));let d=typeof e[a]=="string"?e[a]:null;d&&((F=o[d])!=null||(o[d]=l.getCellValueAsString(a)||l.name)),o[x]=h;let _=d&&o[d]?o[d]:l.getCellValueAsString(a)||l.name;o.post_status&&!c.includes(o.post_status)&&delete o.post_status;let y={airtableRecordId:l.id,sku:o.sku,wp_id:l.getCellValue("wp_id")||null,fields:o};console.log(JSON.stringify(y,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(y,null,2).slice(0,2500)),S(`POSTing to ${w}`);let{data:u,status:P}=await B(w,I,y),p=(A=(T=u.term_id)!=null?T:u.post_id)!=null?A:(E=u==null?void 0:u.data)==null?void 0:E.post_id,k=(C=u.action)!=null?C:"unknown",R=(v=u.message)!=null?v:"";output.set("syncStatus",u&&p?"Success":`HTTP_${P}`),output.set("action",k),output.set("message",R),output.set("postTitle",_),output.set("wpPostId",p!=null?p:null),S(`\u2705 WP ${k} \u2013  ${_}`)}var J=input.config(),H={author_title:"name",author_slug:"slug",author_description:"as_description",profile_image_wp_id:"profile_image",sku:"sku"},W={airtableTable:"author-speaker",skuField:"sku",titleField:"author_title",fieldMap:H,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/author-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/author-sync"}};M(W,J);})();
 </file>
 
-<file path="quick-sync-scripts/src/lib/media-helpers.ts">
+<file path="quick-sync-scripts/src/author-media.ts">
+// quick-sync-scripts/src/author-media.ts
+
+import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+// This config object replaces all the hardcoded constants in the old script.
+const authorMediaConfig: MediaSyncConfig = {
+  // 1. Your Airtable table name
+  airtableTable: 'author-speaker',
+
+  // 2. WP Media endpoints per environment
+  envMediaEndpoints: {
+    prod: 'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
+  },
+
+  // 3. The fields you use to track media changes
+  lastModifiedField: 'media_last_modified',
+  publishTimestampField: 'media_publish_timestamp',
+
+  // 4. One entry for the profile image
+  //    This directly maps to the IMAGE_FIELDS from your old script.
+  imageFields: [
+    {
+      attachmentField:    'profile_image_attachment',
+      wpIdField:          'profile_image_wp_id',
+      wpUrlField:         'profile_image_link',
+      airtableCacheField: 'profile_image_external',
+      isMultiple:         false, // This is a single image field
+    },
+  ],
+};
+
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+// This one line runs the entire sync process using the config above.
+mediaSync(authorMediaConfig, scriptInput);
+</file>
+
+<file path="quick-sync-scripts/src/author-sync.ts">
+// quick-sync-scripts/src/author-sync.ts
+
+import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
+
+// This is the single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+// This FIELD_MAP is taken directly from your v1 script.
+// This is the most important part! We map to 'name' and 'slug', not 'post_title'.
+const AUTHOR_FIELD_MAP: FieldMap = {
+  // Airtable Field Name  ->  WP Payload Key for a TAXONOMY TERM
+  'author_title':       'name',
+  'author_slug':        'slug',
+  'author_description': 'as_description', // Your PHP plugin handles this
+  'profile_image_wp_id':'profile_image',  // This is just a meta field for the term
+
+  // Special case: The SKU is both a meta field and a top-level payload key.
+  // The helper automatically promotes the 'sku' value to the top level.
+  'sku':                'sku',
+};
+
+const authorSyncConfig: QuickSyncConfig = {
+  // Airtable table name
+  airtableTable: 'author-speaker',
+
+  // The unique identifier fields in Airtable
+  skuField: 'sku',
+  titleField: 'author_title', // Used for logging and fallback naming
+
+  // Your field map
+  fieldMap: AUTHOR_FIELD_MAP,
+
+  // Your endpoints
+  envEndpoints: {
+    prod: 'https://four12global.com/wp-json/four12/v1/author-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/author-sync' 
+  },
+};
+
+// Pass the scriptInput object to the helper function.
+quickSync(authorSyncConfig, scriptInput);
+</file>
+
+<file path="quick-sync-scripts/env.d.ts">
+// Airtable scripting globals (injected at runtime)
+declare const input:  any;
+declare const output: any;
+declare const base:   any;
+</file>
+
+<file path="quick-sync-scripts/README.md">
+# Airtable Script Templates for Quick-Sync
+
+This directory contains master templates for the JavaScript code that runs inside Airtable Automations. Using these templates ensures a consistent, reliable, and easy-to-extend synchronization process.
+
+**Do not edit the template files directly.** Always copy their contents to create new scripts for each CPT or Taxonomy you want to sync.
+
+## The Two-Step Sync Process
+
+For any given record, the sync is a two-step process within Airtable Automations:
+
+1.  **Media Sync (Step 1):** The `TEMPLATE_MediaScript.js` runs first. Its only job is to upload image attachments to the WordPress Media Library and write the resulting WordPress Media IDs back into the Airtable record.
+
+2.  **Data Sync (Step 2):** The `TEMPLATE_QuickSyncScript.js` runs second. It gathers all the record's data—including the Media IDs from Step 1—and sends the complete package to the custom WordPress endpoint.
+
+This two-step approach is crucial because it ensures that when the main data sync happens, we are sending stable WordPress Media IDs, not temporary URLs.
+
+---
+
+## How to Use `TEMPLATE_MediaScript.js`
+
+Follow these steps to set up the media sync for a new CPT (e.g., "Events").
+
+1.  **Copy Template:** Open `TEMPLATE_MediaScript.js` and copy its entire contents.
+2.  **Create Airtable Script:** In your Airtable base, go to **Automations**. Create a new automation or edit an existing one. Add a "Run a script" action.
+3.  **Paste Code:** Paste the copied code into the Airtable script editor.
+4.  **Add Input Variable:** The script requires one input variable. In the left panel, add a variable named `recordId` and set its value to the `Airtable record ID` from the automation's trigger step.
+5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block at the top of the script.
+    ```javascript
+    // 1. WordPress Base URL
+    const WP_BASE_URL = "https://four12global.com";
+
+    // 2. Airtable Table Name
+    const TABLE_NAME = "Events"; // Your CPT's table name
+
+    // 3. Secret Name
+    const API_SECRET_NAME = "API-SYNC";
+
+    // 4. Image Field Configurations
+    const IMAGE_FIELD_CONFIGS = [
+      {
+        airtableAttachmentField: "event_featured_image", // Attachment field in your Events table
+        wpIdField: "event_featured_image_wp_id",         // Number field to store the WP ID
+        wpLinkField: "event_featured_image_link",        // URL/Text field for the WP URL
+        externalCacheField: "event_featured_image_ext",  // URL/Text field for the Airtable URL
+      }
+      // Add more objects if the Event CPT has more images
+    ];
+
+    // 5. Control Fields
+    const CONTROL_FIELDS = {
+      lastModifiedField: "event_media_last_modified", // A "Last Modified Time" field watching your attachment fields
+      publishTimestampField: "event_media_publish_ts",  // A "Date" field
+    };
+    ```
+6.  **Set Secret:** Ensure your automation has access to the `API-SYNC` secret containing your WordPress `username:application_password`.
+
+---
+
+## How to Use `TEMPLATE_QuickSyncScript.js`
+
+Follow these steps to set up the main data sync. This action should run **after** the Media Script action in the same automation.
+
+1.  **Copy Template:** Open `TEMPLATE_QuickSyncScript.js` and copy its entire contents.
+2.  **Create Airtable Script:** Add a new "Run a script" action to your automation.
+3.  **Paste Code:** Paste the copied code into the script editor.
+4.  **Add Input Variable:** Just like before, add the `recordId` input variable.
+5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block. The `FIELD_MAP` is the most important part.
+    ```javascript
+    // 1. WordPress Base URL
+    const WP_BASE_URL = "https://four12global.com";
+
+    // 2. The specific route for your sync endpoint
+    const WP_ROUTE_SUFFIX = "/wp-json/four12/v1/event-sync"; // The endpoint for your CPT
+
+    // 3. Airtable Table Name
+    const TABLE_NAME = "Events";
+
+    // 4. Secret Name
+    const API_SECRET_NAME = "API-SYNC";
+
+    // 5. The Airtable field for the unique SKU.
+    const SKU_FIELD = "event_sku";
+
+    // 6. The Airtable field for the WordPress Post ID.
+    const WP_ID_FIELD = "wp_id";
+
+    // 7. Field Map: 'Airtable Field Name': 'wp_payload_key'
+    const FIELD_MAP = {
+      'event_title':          'post_title',
+      'event_slug':           'post_name',
+      'event_categories':     'event-categories',
+      'event_featured_image_wp_id': '_thumbnail_id', // Use the ID field from the media script!
+      'event_description':    'event-description',
+    };
+    ```
+
+## Debugging
+
+-   Always check the **Run history** of your Airtable automation.
+-   The script logs its progress to the console, which is visible in the run history.
+-   The script also uses `output.set()` to provide structured results, like `payloadPreview` and `wpResponse`, which are invaluable for troubleshooting.
+</file>
+
+<file path="quick-sync-scripts/repomix-output.xml">
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+src/
+  lib/
+    media-helpers.ts
+    sync-helpers.ts
+  author-media.ts
+  author-sync.ts
+  series-media.ts
+  series-sync.ts
+  sessions-media.ts
+  sessions-sync.ts
+env.d.ts
+package.json
+README.md
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/lib/media-helpers.ts">
 /*********************************************************************
  * media-helpers.ts  –  shared “step 1” image‑sync utilities
  *
@@ -4666,6 +4205,10 @@ Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remembe
 
 import { buildBasicAuth } from './sync-helpers';          // already exists
 
+/* =========  Small helpers ========= */
+const log = (msg: unknown) =>
+  console.log(`[${new Date().toISOString()}]`, msg);  // ← identical to sync-helpers
+
 /* =========  Types  ========= */
 export interface ImageFieldConfig {
   /** Airtable attachment field (array of objects with .url)              */
@@ -4674,7 +4217,7 @@ export interface ImageFieldConfig {
   wpIdField:            string;
   /** Field that stores WP media URL(s)                                    */
   wpUrlField:           string;
-  /** Cache of the original Airtable URL(s); lets us detect a changed img  */
+  /** Cache of the original Airtable attachment ID(s); lets us detect a changed img  */
   airtableCacheField:   string;
   /** Optional Airtable text field for external URL                        */
   externalUrlField?:    string;
@@ -4692,7 +4235,6 @@ export interface MediaSyncConfig {
 }
 
 /* =========  Small helpers ========= */
-const log = (m: unknown) => console.log(`[${new Date().toISOString()}]`, m);
 const SECRET_DEFAULT = 'API-SYNC';
 
 async function download(attachment: any) {
@@ -4710,21 +4252,34 @@ async function uploadToWp(
   endpoint: string,
   basicAuth: string,
   { blob, filename, contentType }: { blob: Blob; filename: string; contentType: string },
+  recordId?: string,
 ) {
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${basicAuth}`,
-      'Content-Type': contentType,
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    },
-    body: blob,
-  });
-  const json = await res.json();
-  if (!res.ok || !json?.id) {
-    throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
+  // Before you start an upload
+  log(`Uploading ${filename}${recordId ? ` for record ${recordId}` : ''} …`);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+      body: blob,
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.id) {
+      throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
+    }
+    
+    // Success
+    log(`✅ Uploaded ${filename} → ${json.source_url} (wpId: ${json.id})`);
+    
+    return { id: String(json.id), url: json.source_url as string };
+  } catch (err) {
+    console.error(`❌ Upload failed ${filename}${recordId ? ` for record ${recordId}` : ''}: ${(err as Error).message}`);
+    throw err; // keep your upstream error handling intact
   }
-  return { id: String(json.id), url: json.source_url as string };
 }
 
 /* =========  Field‑by‑field processor ========= */
@@ -4733,12 +4288,14 @@ async function processImageField(
   spec: ImageFieldConfig,
   wpEndpoint: string,
   basicAuth: string,
+  recordId: string,
   onError?: (err: Error) => void,
 ) {
   const a = record.getCellValue(spec.attachmentField) ?? [];
   const prevWpIds   = (record.getCellValue(spec.wpIdField)  ?? '') as string;
   const prevWpUrls  = (record.getCellValue(spec.wpUrlField) ?? '') as string;
-  const prevAirtUrl = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
+  const prevCacheIdsRaw = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
+  const prevIds = (prevCacheIdsRaw ?? '').split(',').filter(Boolean);
   const externalUrl = spec.externalUrlField
     ? (record.getCellValueAsString?.(spec.externalUrlField) || '').trim()
     : '';
@@ -4756,7 +4313,7 @@ async function processImageField(
 
   /* ----- No attachment?  Maybe clear stale WP refs ------ */
   if (a.length === 0) {
-    if (prevWpIds || prevWpUrls || prevAirtUrl) {
+    if (prevWpIds || prevWpUrls || prevCacheIdsRaw) {
       return { wpIds: null, wpUrls: null, cacheUrls: null, changed: true };
     }
     return { changed: false };
@@ -4765,16 +4322,15 @@ async function processImageField(
   /* ----- SINGLE attachment (99 % of your use‑cases) ----- */
   if (!spec.isMultiple) {
     const att = a[0];
-    const airtableUrl = att.url;
-    if (airtableUrl === prevAirtUrl && prevWpIds) {
-      // unchanged – skip
+    if (prevIds.includes(att.id) && prevWpIds) {
+      log(`↩️ Reusing ${att.filename ?? 'file'} (wpId: ${prevWpIds})`);
       return { changed: false };
     }
     // New file or first run
     try {
       const { blob, filename, contentType } = await download(att);
-      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-      return { wpIds: id, wpUrls: url, cacheUrls: airtableUrl, changed: true };
+      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+      return { wpIds: id, wpUrls: url, cacheUrls: att.id, changed: true };
     } catch (err) {
       if (onError) onError(err as Error);
       log(`⚠️  single-upload failed ${att.url}: ${(err as Error).message}`);
@@ -4784,23 +4340,35 @@ async function processImageField(
 
   /* ----- MULTI attachment ----- */
   if (spec.isMultiple) {
-    const uploads: Array<{id:string; url:string}> = [];
+    const uploads: Array<{id:string; url:string; airtableId:string}> = [];
     for (const at of a) {
+      if (prevIds.includes(at.id)) {
+        log(`↩️ Reusing ${at.filename ?? 'file'}…`);
+        continue;
+      }
       try {
         const { blob, filename, contentType } = await download(at);
-        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType });
-        uploads.push({ id, url });
+        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+        uploads.push({ id, url, airtableId: at.id });
       } catch (err) {
         if (onError) onError(err as Error);
         log(`❌  multi‑upload failed ${at.url}: ${(err as Error).message}`);
       }
     }
-    if (uploads.length) {
+    if (uploads.length || a.some((at: any) => prevIds.includes(at.id))) {
+      // Collect everything you want to keep
+      const keptIds   = a.filter((at: any) => prevIds.includes(at.id))
+                         .map((at: any) => at.id);
+      const keptWpIds = prevWpIds.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+      const keptWpUrls = prevWpUrls.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+
       return {
-        wpIds: uploads.map(u => u.id).join(","),
-        wpUrls: uploads.map(u => u.url).join(","),
-        cacheUrls: a.map((att: any) => att.url).join(","),
-        changed: true,
+        wpIds:     [...keptWpIds, ...uploads.map(u => u.id)].join(','),
+        wpUrls:    [...keptWpUrls, ...uploads.map(u => u.url)].join(','),
+        cacheUrls: [...keptIds ,  ...uploads.map(u => u.airtableId)].join(','),
+        changed:   true,
       };
     }
     return { changed: false };
@@ -4821,10 +4389,16 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
     secretName = SECRET_DEFAULT,
   } = cfg;
 
-  // Use the passed-in inputConfig object
-  const { recordId, env = 'prod' } = inputConfig;
+  /* —— Inputs —— */
+  // Use the passed-in inputConfig object, just like in quickSync
+  const { recordId, env } = inputConfig;
   if (!recordId) throw new Error('Automation must pass {recordId}.');
-  const wpEndpoint = envMediaEndpoints[env] ?? envMediaEndpoints['prod'];
+  // The same safe check for the 'env' variable
+  if (!env || !envMediaEndpoints[env]) {
+    const availableEnvs = Object.keys(envMediaEndpoints).join(', ');
+    throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
+  }
+  const wpEndpoint = envMediaEndpoints[env];
   const basicAuth  = buildBasicAuth(await input.secret(secretName), secretName);
 
   const table  = base.getTable(airtableTable);
@@ -4855,7 +4429,1123 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
 
   for (const spec of imageFields) {
     try {
-      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, (err) => { hadErrors = true; });
+      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, recordId, (err) => { hadErrors = true; });
+      if (r && r.changed) {
+        updates[spec.wpIdField]          = r.wpIds   ?? null;
+        updates[spec.wpUrlField]         = r.wpUrls  ?? null;
+        updates[spec.airtableCacheField] = r.cacheUrls ?? null;
+        anyChanges = true;
+      }
+    } catch (err) {
+      hadErrors = true;
+      log(`⚠️  ${spec.attachmentField}: ${(err as Error).message}`);
+      // do NOT touch fields on error – leave stale values
+    }
+  }
+
+  if (anyChanges) {
+    if (!hadErrors) {
+      updates[publishTimestampField] = new Date().toISOString();
+    } else {
+      log('⚠️  Skipping timestamp because at least one upload failed');
+    }
+    await table.updateRecordAsync(rec, updates);
+    log('✅ Media sync complete & fields updated');
+  } else {
+    log('✔ No media changes detected – nothing to write');
+  }
+}
+</file>
+
+<file path="src/lib/sync-helpers.ts">
+/*********************************************************************
+ * sync-helpers.ts  –  shared utilities for Quick-Sync scripts
+ * ---------------------------------------------------------------
+ * Usage in a table-specific entry file (e.g. series-sync.ts):
+ *
+ *   import { quickSync } from './lib/sync-helpers';
+ *
+ *   quickSync({
+ *     airtableTable: 'Series',
+ *     fieldMap: FIELD_MAP,
+ *     envEndpoints: {
+ *       prod:    'https://four12global.com/wp-json/four12/v1/series-sync',
+ *       staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
+ *
+ *     },
+ *   });
+ *********************************************************************/
+
+/* =========  Types  ========= */
+export interface MediaSpec {
+  airtableIdField: string;
+  airtableLinkField?: string;
+  wpKey: string;
+}
+export type FieldMap = Record<
+  string,
+  string | MediaSpec
+>;
+
+export interface QuickSyncConfig {
+  airtableTable: string;
+  fieldMap: FieldMap;
+  envEndpoints: Record<string, string>;
+  skuField:   string;
+  titleField: string;
+  allowedStatuses?: string[];
+  secretName?:      string;
+}
+
+
+/* =========  Console helper ========= */
+const log = (msg: unknown) =>
+  console.log(`[${new Date().toISOString()}]`, msg);
+
+/* =========  Common constants ========= */
+const DEFAULT_ALLOWED_STATUSES = ['publish', 'draft', 'trash', 'private'];
+const DEFAULT_SECRET_NAME      = 'API-SYNC';
+const LAST_SYNCED_KEY          = 'last_synced';
+
+/* =========  Auth helper ========= */
+export function buildBasicAuth(secret: string, secretName = DEFAULT_SECRET_NAME) {
+  if (!secret || !secret.includes(':'))
+    throw new Error(`Secret "${secretName}" must be "user:app-password".`);
+  return Buffer.from(secret).toString('base64');
+}
+
+/* =========  Airtable field utils ========= */
+export function fieldsToFetch(
+  map: FieldMap,
+  skuField: string,
+  titleField: string,
+): string[] {
+  const s = new Set<string>();
+  for (const k in map) {
+    const v = map[k];
+    if (typeof v === 'string') s.add(k);
+    else {
+      s.add(v.airtableIdField);
+      if (v.airtableLinkField) s.add(v.airtableLinkField);
+    }
+  }
+  s.add('wp_id').add(skuField).add(titleField);
+  return Array.from(s);
+}
+
+/* Clean & coerce values so WP gets primitives */
+export function coerceValue(field: string, raw: any): any {
+  if (raw == null) return null;
+
+  // multiselects, linked records, lookups → array ⇢ names/strings
+  if (Array.isArray(raw)) {
+    return raw.map(x =>
+      (typeof x === 'object' && x !== null && 'name' in x)
+        ? x.name
+        : String(x)
+    );
+  }
+
+  // single attachment → url
+  if (typeof raw === 'object' && raw.url)
+    return raw.url;
+
+  // single-select object → name
+  if (typeof raw === 'object' && raw !== null && 'name' in raw)
+    return raw.name;
+
+  return raw; // plain string/number/date already fine
+}
+
+/* Build WP `fields` object */
+export function buildSyncFields(record: any, map: FieldMap): Record<string, any> {
+  const table = record.parentTable;         // Airtable API
+  const fields: Record<string, any> = {};
+
+  for (const src in map) {
+    const mapping = map[src];
+
+    // Simple 1⇢1 mapping
+    if (typeof mapping === 'string') {
+      const raw = record.getCellValue(src);
+      if (mapping === 'post_status') {
+        // status handled later (allowedStatuses check)
+        fields.post_status = raw && raw.name ? raw.name.toLowerCase() :
+                             typeof raw === 'string' ? raw.toLowerCase() : null;
+      } else {
+        fields[mapping] = coerceValue(src, raw);
+      }
+      continue;
+    }
+
+    // Media object
+    const val = record.getCellValue(mapping.airtableIdField) ||
+                (mapping.airtableLinkField && record.getCellValue(mapping.airtableLinkField));
+    if (val) fields[mapping.wpKey] = val;
+  }
+
+  return fields;
+}
+
+/* =========  WP fetch helper ========= */
+export async function postToWp(
+  url: string,
+  authB64: string,
+  payload: any
+) {
+  const res = await fetch(url, {
+    method:  'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:  `Basic ${authB64}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    // Even on error, it's useful to return the status
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
+  }
+  
+  // Return an object with both the parsed data and the status code
+  return {
+    data: JSON.parse(text),
+    status: res.status
+  };
+}
+
+/* =========  Main orchestrator ========= */
+export async function quickSync(cfg: QuickSyncConfig, inputConfig: any) {
+  const {
+    airtableTable,
+    fieldMap,
+    envEndpoints,
+    skuField,
+    titleField,
+    allowedStatuses = DEFAULT_ALLOWED_STATUSES,
+    secretName     = DEFAULT_SECRET_NAME,
+  } = cfg;
+  if (!skuField || !titleField)
+    throw new Error('quickSync: skuField and titleField are required');
+
+  // Use the passed-in inputConfig object
+  const { recordId, env } = inputConfig;
+  if (!recordId) throw new Error('Automation must pass {recordId}.');
+  if (!env || !envEndpoints[env]) {
+    const availableEnvs = Object.keys(envEndpoints).join(', ');
+    throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
+  }
+  const wpUrl = envEndpoints[env];
+
+  const syncEpoch = Math.floor(Date.now() / 1000);
+  log(`Quick-Sync (${airtableTable}) start – epoch ${syncEpoch}`);
+
+  /* ── Auth ── */
+  const authSecret = await input.secret(secretName);
+  const authB64    = buildBasicAuth(authSecret, secretName);
+
+  /* ── Fetch record ── */
+  const table  = base.getTable(airtableTable);
+  const fieldsNeeded = fieldsToFetch(fieldMap, skuField, titleField);
+  const record = await table.selectRecordAsync(recordId, { fields: fieldsNeeded });
+  if (!record) throw new Error(`Record ${recordId} not found in ${airtableTable}`);
+
+  /* ── Build fields ── */
+  const fields = buildSyncFields(record, fieldMap);
+
+// Ensure SKU & title exist
+fields.sku ??= record.getCellValueAsString(skuField);
+
+// Get the destination key for the title from the field map (e.g., 'post_title' or 'name')
+const titleDestinationKey = (typeof fieldMap[titleField] === 'string')
+  ? fieldMap[titleField] as string
+  : null;
+
+// Only add the title if its destination key is known and it's not already set.
+if (titleDestinationKey) {
+    fields[titleDestinationKey] ??= record.getCellValueAsString(titleField) || record.name;
+}
+
+fields[LAST_SYNCED_KEY] = syncEpoch;
+
+// We still need the title for logging purposes, regardless of its key
+const titleForLogging = (titleDestinationKey && fields[titleDestinationKey])
+    ? fields[titleDestinationKey]
+    : record.getCellValueAsString(titleField) || record.name;
+
+  // post_status whitelist
+  if (fields.post_status && !allowedStatuses.includes(fields.post_status))
+    delete fields.post_status;
+
+  /* ── Assemble payload ── */
+  const payload = {
+    airtableRecordId: record.id,
+    sku:   fields.sku,
+    wp_id: record.getCellValue('wp_id') || null,
+    fields,
+  };
+  console.log(JSON.stringify(payload, null, 2).substring(0, 5000));
+  output.set(
+    'payloadSent',
+    JSON.stringify(payload, null, 2).slice(0, 2500)
+  );
+
+  
+/* ── POST to WP ── */
+log(`POSTing to ${wpUrl}`);
+// Use destructuring to get both `data` and `status` from the response
+const { data, status } = await postToWp(wpUrl, authB64, payload);
+
+/* ── Handle response ── */
+const postId = data.term_id ?? data.post_id ?? data?.data?.post_id;
+const action   = data.action  ?? 'unknown';
+const message  = data.message ?? '';
+
+output.set(
+  'syncStatus',
+  // Use the `status` variable we just received
+  data && postId ? 'Success' : `HTTP_${status}`
+);
+output.set('action',     action);
+output.set('message',    message);
+output.set('postTitle',  titleForLogging);
+output.set('wpPostId',   postId ?? null);
+log(`✅ WP ${action} –  ${titleForLogging}`);
+}
+</file>
+
+<file path="src/author-media.ts">
+// quick-sync-scripts/src/author-media.ts
+
+import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+// This config object replaces all the hardcoded constants in the old script.
+const authorMediaConfig: MediaSyncConfig = {
+  // 1. Your Airtable table name
+  airtableTable: 'author-speaker',
+
+  // 2. WP Media endpoints per environment
+  envMediaEndpoints: {
+    prod: 'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
+  },
+
+  // 3. The fields you use to track media changes
+  lastModifiedField: 'media_last_modified',
+  publishTimestampField: 'media_publish_timestamp',
+
+  // 4. One entry for the profile image
+  //    This directly maps to the IMAGE_FIELDS from your old script.
+  imageFields: [
+    {
+      attachmentField:    'profile_image_attachment',
+      wpIdField:          'profile_image_wp_id',
+      wpUrlField:         'profile_image_link',
+      airtableCacheField: 'profile_image_external',
+      isMultiple:         false, // This is a single image field
+    },
+  ],
+};
+
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+// This one line runs the entire sync process using the config above.
+mediaSync(authorMediaConfig, scriptInput);
+</file>
+
+<file path="src/author-sync.ts">
+// quick-sync-scripts/src/author-sync.ts
+
+import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
+
+// This is the single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+// This FIELD_MAP is taken directly from your v1 script.
+// This is the most important part! We map to 'name' and 'slug', not 'post_title'.
+const AUTHOR_FIELD_MAP: FieldMap = {
+  // Airtable Field Name  ->  WP Payload Key for a TAXONOMY TERM
+  'author_title':       'name',
+  'author_slug':        'slug',
+  'author_description': 'as_description', // Your PHP plugin handles this
+  'profile_image_wp_id':'profile_image',  // This is just a meta field for the term
+
+  // Special case: The SKU is both a meta field and a top-level payload key.
+  // The helper automatically promotes the 'sku' value to the top level.
+  'sku':                'sku',
+};
+
+const authorSyncConfig: QuickSyncConfig = {
+  // Airtable table name
+  airtableTable: 'author-speaker',
+
+  // The unique identifier fields in Airtable
+  skuField: 'sku',
+  titleField: 'author_title', // Used for logging and fallback naming
+
+  // Your field map
+  fieldMap: AUTHOR_FIELD_MAP,
+
+  // Your endpoints
+  envEndpoints: {
+    prod: 'https://four12global.com/wp-json/four12/v1/author-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/author-sync' 
+  },
+};
+
+// Pass the scriptInput object to the helper function.
+quickSync(authorSyncConfig, scriptInput);
+</file>
+
+<file path="src/series-media.ts">
+// src/series-media.ts
+
+import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+// The single, valid call to input.config()
+const scriptInput = input.config();
+
+const seriesMediaConfig: MediaSyncConfig = {
+  // 1. Your Airtable table name
+  airtableTable: 'Series',
+
+  // 2. WP Media endpoints per environment
+  envMediaEndpoints: {
+    prod: 'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
+  },
+
+  // 3. The fields you use in Airtable to track media changes
+  lastModifiedField:     'media_last_modified',
+  publishTimestampField: 'media_publish_timestamp',
+
+  // 4. One entry per image slot in your CPT
+  imageFields: [
+    {
+      attachmentField:    'featured_image_attachment',
+      wpIdField:          'featured_image_wp_id',
+      wpUrlField:         'featured_image_link',
+      airtableCacheField: 'featured_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'banner_image_attachment',
+      wpIdField:          'banner_image_wp_id',
+      wpUrlField:         'banner_image_link',
+      airtableCacheField: 'banner_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'listing_image_attachment',
+      wpIdField:          'listing_image_wp_id',
+      wpUrlField:         'listing_image_link',
+      airtableCacheField: 'listing_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'no_words_image_attachment',
+      wpIdField:          'no_words_image_wp_id',
+      wpUrlField:         'no_words_image_link',
+      airtableCacheField: 'no_words_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'primary_cta_image_attachment',
+      wpIdField:          'primary_cta_image_wp_id',
+      wpUrlField:         'primary_cta_image_link',
+      airtableCacheField: 'primary_cta_image_external',
+      isMultiple:         false,
+    },
+  ],
+};
+
+// Pass the scriptInput object to the helper function.
+mediaSync(seriesMediaConfig, scriptInput);
+</file>
+
+<file path="src/series-sync.ts">
+import { quickSync } from './lib/sync-helpers';
+
+const FIELD_MAP = {
+  /* ── Core WP fields ───────────────────────────── */
+  series_title:      'post_title',
+  series_slug:       'post_name',
+  long_date:         'post_date',
+  website_status:    'post_status',
+  series_sku:        'sku',
+  excerpt:           'post_excerpt',
+
+  /* Custom permalink (Permalink Manager) */
+  series_permalink:  'custom_permalink_uri',
+
+  /* ── Taxonomies ──────────────────────────────── */
+  global_categories:      'global-categories',
+  series_filter_category: 'series-categories',
+  topics:                 'topics',
+  series_template:        'series-templates',
+
+  /* ── ACTIVE media (prefer ID, fallback URL) ──── */
+  featured_image: {
+    airtableIdField:   'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id',
+  },
+  listing_image: {
+    airtableIdField:   'listing_image_wp_id',
+    airtableLinkField: 'listing_image_link',
+    wpKey: 'listing-image',
+  },
+  no_words_image: {
+    airtableIdField:   'no_words_image_wp_id',
+    airtableLinkField: 'no_words_image_link',
+    wpKey: 'no-words-image',
+  },
+  banner_image: {
+    airtableIdField:   'banner_image_wp_id',
+    airtableLinkField: 'banner_image_link',
+    wpKey: 'banner-image',
+  },
+  primary_cta_image: {
+    airtableIdField:   'primary_cta_image_wp_id',
+    airtableLinkField: 'primary_cta_image_link',
+    wpKey: 'manual1-image',
+  },
+
+  /* ── Meta / CTA / SEO etc. ───────────────────── */
+  series_description_title: 'series-description_title',
+  series_description:       'series-description',
+  who_is_it_for:            'series-who-is-it-for',
+  series_purpose:           'series-purpose',
+  series_colour_1:          'series-colour-1',
+  series_colour_2:          'series-colour-2',
+  print_pdf_link:           'link_five',
+  custom_pdf_link:          'link_ten',
+  youtube_playlist:         'youtube-playlist-link',
+  spotify_playlist:         'spotify-playlist-link',
+  apple_playlist:           'apple-playlist-link',
+  highlights_video:         'highlights-video',
+
+  /* CTA blocks */
+  primary_cta_heading: 'manual1-title',
+  primary_cta_title:   'manual1-link-title',
+  primary_cta_link:    'manual1-link',
+  secondary_cta_heading: 'manual2-title',
+  secondary_cta_title:   'manual2-link-title',
+  secondary_cta_link:    'manual2-link',
+
+  seo_description:     '_aioseo_description',
+  session_title:       'custom-session-title',
+  sessions_list:       'series-episode-list',
+  session_list_1:      'series-episode-list-more',
+  session_list_2:      'series-episode-list-3',
+  session_list_3:      'series-episode-list-4',
+};
+
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+quickSync({
+  /* ----- Airtable table name ----- */
+  airtableTable: 'Series',
+
+  /* ----- Airtable field that holds your permanent SKU & title ----- */
+  skuField:   'series_sku',
+  titleField: 'series_title',
+
+  /* ----- END per‑CPT overrides ----- */
+  fieldMap: FIELD_MAP,
+  envEndpoints: {
+    prod:     'https://four12global.com/wp-json/four12/v1/series-sync',
+    staging:  'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
+  }
+}, scriptInput);
+</file>
+
+<file path="src/sessions-media.ts">
+// src/sessions-media.ts
+
+import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+// The single, valid call to input.config()
+const scriptInput = input.config();
+
+const sessionsMediaConfig: MediaSyncConfig = {
+  // 1. Your Airtable table name
+  airtableTable: 'Sessions',
+
+  // 2. WP Media endpoints per environment
+  envMediaEndpoints: {
+    prod:    'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
+  },
+
+  // 3. Fields that track media-related updates
+  lastModifiedField:     'media_last_modified',
+  publishTimestampField: 'media_publish_timestamp',
+
+  // 4. One entry per image slot in the CPT
+  imageFields: [
+    {
+      attachmentField:    'featured_image_attachment',
+      wpIdField:          'featured_image_wp_id',
+      wpUrlField:         'featured_image_link',
+      airtableCacheField: 'featured_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'banner_image_attachment',
+      wpIdField:          'banner_image_wp_id',
+      wpUrlField:         'banner_image_link',
+      airtableCacheField: 'banner_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'listing_image_attachment',
+      wpIdField:          'listing_image_wp_id',
+      wpUrlField:         'listing_image_link',
+      airtableCacheField: 'listing_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'no_words_image_attachment',
+      wpIdField:          'no_words_image_wp_id',
+      wpUrlField:         'no_words_image_link',
+      airtableCacheField: 'no_words_image_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'pdf_image_1_attachment',
+      wpIdField:          'pdf_image_1_wp_id',
+      wpUrlField:         'pdf_image_1_link',
+      airtableCacheField: 'pdf_image_1_external',
+      isMultiple:         false,
+    },
+    {
+      attachmentField:    'pdf_image_2_attachment',
+      wpIdField:          'pdf_image_2_wp_id',
+      wpUrlField:         'pdf_image_2_link',
+      airtableCacheField: 'pdf_image_2_external',
+      isMultiple:         false,
+    },
+  ],
+};
+
+// Fire it off
+mediaSync(sessionsMediaConfig, scriptInput);
+</file>
+
+<file path="src/sessions-sync.ts">
+import { quickSync } from './lib/sync-helpers';
+
+const FIELD_MAP = {
+  /* ── Core WP fields ───────────────────────────── */
+  session_title:      'post_title',
+  session_slug:       'post_name',
+  session_description:'post_content',
+  excerpt:            'post_excerpt',
+  session_permalink:  '_custom_uri',
+  session_sku:        'sku',
+
+  /* ── Media fields (ID preferred, fallback to URL) ─ */
+  featured_image: {
+    airtableIdField:   'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id',
+  },
+  listing_image: {
+    airtableIdField:   'listing_image_wp_id',
+    airtableLinkField: 'listing_image_link',
+    wpKey: 'listing-image',
+  },
+  no_words_image: {
+    airtableIdField:   'no_words_image_wp_id',
+    airtableLinkField: 'no_words_image_link',
+    wpKey: 'no-words-image',
+  },
+  banner_image: {
+    airtableIdField:   'banner_image_wp_id',
+    airtableLinkField: 'banner_image_link',
+    wpKey: 'banner-image',
+  },
+  pdf_image_1: {
+    airtableLinkField: 'pdf_image_1_link',
+    wpKey: 'pdf-image-1',
+  },
+  pdf_image_2: {
+    airtableLinkField: 'pdf_image_2_link',
+    wpKey: 'manual2-image',
+  },
+
+  /* ── Meta fields ───────────────────────────── */
+  pdf_title_1:           'custom-pdf-title-1',
+  pdf_link_1:            'link_ten',
+  pdf_title_2:           'custom-pdf-title-2',
+  pdf_link_2:            'link_eleven',
+  alt_link_1:            'link_five',
+  youtube_link:          'link_one',
+  vimeo_link:            'vimeo_link',
+  spotify_podcast:       'spotify-podcast-link',
+  apple_podcast:         'apple-podcast-link',
+  available_on_request:  'available-on-request',
+  publish_timestamp:     'last_published',
+  last_synced:           'last_synced',
+
+  /* ── Taxonomies ─────────────────────────────── */
+  global_categories: 'global-categories',
+  series_category:    'series-categories',
+  topics_title:       'topics',
+  speaker_title:      'author_speaker',
+};
+
+const scriptInput = input.config();
+
+quickSync({
+  airtableTable: 'Sessions',
+  skuField:      'session_sku',
+  titleField:    'session_title',
+
+  fieldMap: FIELD_MAP,
+  envEndpoints: {
+    prod:    'https://four12global.com/wp-json/four12/v1/sessions-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync',
+  }
+}, scriptInput);
+</file>
+
+<file path="env.d.ts">
+// Airtable scripting globals (injected at runtime)
+declare const input:  any;
+declare const output: any;
+declare const base:   any;
+</file>
+
+<file path="package.json">
+{
+  "name": "f12-quick-sync",
+  "version": "1.0.0",
+  "description": "Airtable → WordPress Quick-Sync scripts",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
+    "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.25.8",
+    "typescript": "^5.8.3"
+  }
+}
+</file>
+
+<file path="README.md">
+# Airtable Script Templates for Quick-Sync
+
+This directory contains master templates for the JavaScript code that runs inside Airtable Automations. Using these templates ensures a consistent, reliable, and easy-to-extend synchronization process.
+
+**Do not edit the template files directly.** Always copy their contents to create new scripts for each CPT or Taxonomy you want to sync.
+
+## The Two-Step Sync Process
+
+For any given record, the sync is a two-step process within Airtable Automations:
+
+1.  **Media Sync (Step 1):** The `TEMPLATE_MediaScript.js` runs first. Its only job is to upload image attachments to the WordPress Media Library and write the resulting WordPress Media IDs back into the Airtable record.
+
+2.  **Data Sync (Step 2):** The `TEMPLATE_QuickSyncScript.js` runs second. It gathers all the record's data—including the Media IDs from Step 1—and sends the complete package to the custom WordPress endpoint.
+
+This two-step approach is crucial because it ensures that when the main data sync happens, we are sending stable WordPress Media IDs, not temporary URLs.
+
+---
+
+## How to Use `TEMPLATE_MediaScript.js`
+
+Follow these steps to set up the media sync for a new CPT (e.g., "Events").
+
+1.  **Copy Template:** Open `TEMPLATE_MediaScript.js` and copy its entire contents.
+2.  **Create Airtable Script:** In your Airtable base, go to **Automations**. Create a new automation or edit an existing one. Add a "Run a script" action.
+3.  **Paste Code:** Paste the copied code into the Airtable script editor.
+4.  **Add Input Variable:** The script requires one input variable. In the left panel, add a variable named `recordId` and set its value to the `Airtable record ID` from the automation's trigger step.
+5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block at the top of the script.
+    ```javascript
+    // 1. WordPress Base URL
+    const WP_BASE_URL = "https://four12global.com";
+
+    // 2. Airtable Table Name
+    const TABLE_NAME = "Events"; // Your CPT's table name
+
+    // 3. Secret Name
+    const API_SECRET_NAME = "API-SYNC";
+
+    // 4. Image Field Configurations
+    const IMAGE_FIELD_CONFIGS = [
+      {
+        airtableAttachmentField: "event_featured_image", // Attachment field in your Events table
+        wpIdField: "event_featured_image_wp_id",         // Number field to store the WP ID
+        wpLinkField: "event_featured_image_link",        // URL/Text field for the WP URL
+        externalCacheField: "event_featured_image_ext",  // URL/Text field for the Airtable URL
+      }
+      // Add more objects if the Event CPT has more images
+    ];
+
+    // 5. Control Fields
+    const CONTROL_FIELDS = {
+      lastModifiedField: "event_media_last_modified", // A "Last Modified Time" field watching your attachment fields
+      publishTimestampField: "event_media_publish_ts",  // A "Date" field
+    };
+    ```
+6.  **Set Secret:** Ensure your automation has access to the `API-SYNC` secret containing your WordPress `username:application_password`.
+
+---
+
+## How to Use `TEMPLATE_QuickSyncScript.js`
+
+Follow these steps to set up the main data sync. This action should run **after** the Media Script action in the same automation.
+
+1.  **Copy Template:** Open `TEMPLATE_QuickSyncScript.js` and copy its entire contents.
+2.  **Create Airtable Script:** Add a new "Run a script" action to your automation.
+3.  **Paste Code:** Paste the copied code into the script editor.
+4.  **Add Input Variable:** Just like before, add the `recordId` input variable.
+5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block. The `FIELD_MAP` is the most important part.
+    ```javascript
+    // 1. WordPress Base URL
+    const WP_BASE_URL = "https://four12global.com";
+
+    // 2. The specific route for your sync endpoint
+    const WP_ROUTE_SUFFIX = "/wp-json/four12/v1/event-sync"; // The endpoint for your CPT
+
+    // 3. Airtable Table Name
+    const TABLE_NAME = "Events";
+
+    // 4. Secret Name
+    const API_SECRET_NAME = "API-SYNC";
+
+    // 5. The Airtable field for the unique SKU.
+    const SKU_FIELD = "event_sku";
+
+    // 6. The Airtable field for the WordPress Post ID.
+    const WP_ID_FIELD = "wp_id";
+
+    // 7. Field Map: 'Airtable Field Name': 'wp_payload_key'
+    const FIELD_MAP = {
+      'event_title':          'post_title',
+      'event_slug':           'post_name',
+      'event_categories':     'event-categories',
+      'event_featured_image_wp_id': '_thumbnail_id', // Use the ID field from the media script!
+      'event_description':    'event-description',
+    };
+    ```
+
+## Debugging
+
+-   Always check the **Run history** of your Airtable automation.
+-   The script logs its progress to the console, which is visible in the run history.
+-   The script also uses `output.set()` to provide structured results, like `payloadPreview` and `wpResponse`, which are invaluable for troubleshooting.
+</file>
+
+<file path="tsconfig.json">
+{
+    "compilerOptions": {
+      "target": "es2017",
+      "lib": ["es2017", "dom"],
+      "module": "commonjs",
+      "strict": true,
+      "esModuleInterop": true,
+      "outDir": "dist"
+    },
+    "include": ["src/**/*", "env.d.ts"]
+  }
+</file>
+
+</files>
+</file>
+
+<file path="quick-sync-scripts/tsconfig.json">
+{
+    "compilerOptions": {
+      "target": "es2017",
+      "lib": ["es2017", "dom"],
+      "module": "commonjs",
+      "strict": true,
+      "esModuleInterop": true,
+      "outDir": "dist"
+    },
+    "include": ["src/**/*", "env.d.ts"]
+  }
+</file>
+
+<file path=".gitattributes">
+# Auto detect text files and perform LF normalization
+* text=auto
+</file>
+
+<file path="package.json">
+{
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
+</file>
+
+<file path="quick-sync-scripts/dist/series-media.js">
+"use strict";(()=>{var v="API-SYNC";function E(t,i=v){if(!t||!t.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}var p=t=>console.log(`[${new Date().toISOString()}]`,t),A="API-SYNC";async function k(t){var c,o;let i=await fetch(t.url);if(!i.ok)throw new Error(`\u2198 download ${t.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(c=t.filename)!=null?c:"file",contentType:(o=i.headers.get("content-type"))!=null?o:"application/octet-stream",srcUrl:t.url}}async function U(t,i,{blob:c,filename:o,contentType:m},d){p(`Uploading ${o}${d?` for record ${d}`:""} \u2026`);try{let n=await fetch(t,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${o}"`},body:c}),a=await n.json();if(!n.ok||!(a!=null&&a.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(a).slice(0,200)}`);return p(`\u2705 Uploaded ${o} \u2192 ${a.source_url} (wpId: ${a.id})`),{id:String(a.id),url:a.source_url}}catch(n){throw console.error(`\u274C Upload failed ${o}${d?` for record ${d}`:""}: ${n.message}`),n}}async function x(t,i,c,o,m,d){var I,S,T,w,C,$,h;let n=(I=t.getCellValue(i.attachmentField))!=null?I:[],a=(S=t.getCellValue(i.wpIdField))!=null?S:"",b=(T=t.getCellValue(i.wpUrlField))!=null?T:"",f=(w=t.getCellValue(i.airtableCacheField))!=null?w:"",g=(f!=null?f:"").split(",").filter(Boolean),F=i.externalUrlField?(((C=t.getCellValueAsString)==null?void 0:C.call(t,i.externalUrlField))||"").trim():"";if(n.length===0&&F)return{wpIds:null,wpUrls:F,cacheUrls:null,changed:F!==b};if(n.length===0)return a||b||f?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let s=n[0];if(g.includes(s.id)&&a)return p(`\u21A9\uFE0F Reusing ${($=s.filename)!=null?$:"file"} (wpId: ${a})`),{changed:!1};try{let{blob:l,filename:u,contentType:y}=await k(s),{id:e,url:r}=await U(c,o,{blob:l,filename:u,contentType:y},m);return{wpIds:e,wpUrls:r,cacheUrls:s.id,changed:!0}}catch(l){return d&&d(l),p(`\u26A0\uFE0F  single-upload failed ${s.url}: ${l.message}`),{changed:!1}}}if(i.isMultiple){let s=[];for(let l of n){if(g.includes(l.id)){p(`\u21A9\uFE0F Reusing ${(h=l.filename)!=null?h:"file"}\u2026`);continue}try{let{blob:u,filename:y,contentType:e}=await k(l),{id:r,url:_}=await U(c,o,{blob:u,filename:y,contentType:e},m);s.push({id:r,url:_,airtableId:l.id})}catch(u){d&&d(u),p(`\u274C  multi\u2011upload failed ${l.url}: ${u.message}`)}}if(s.length||n.some(l=>g.includes(l.id))){let l=n.filter(e=>g.includes(e.id)).map(e=>e.id),u=a.split(",").filter(Boolean).filter((e,r)=>{var _;return g.includes((_=n[r])==null?void 0:_.id)}),y=b.split(",").filter(Boolean).filter((e,r)=>{var _;return g.includes((_=n[r])==null?void 0:_.id)});return{wpIds:[...u,...s.map(e=>e.id)].join(","),wpUrls:[...y,...s.map(e=>e.url)].join(","),cacheUrls:[...l,...s.map(e=>e.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function M(t,i){var l,u,y;let c=!1,{airtableTable:o,envMediaEndpoints:m,imageFields:d,lastModifiedField:n,publishTimestampField:a,secretName:b=A}=t,{recordId:f,env:g}=i;if(!f)throw new Error("Automation must pass {recordId}.");if(!g||!m[g]){let e=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${e}`)}let F=m[g],I=E(await input.secret(b),b),S=base.getTable(o),T=[n,a,...d.flatMap(e=>[e.attachmentField,e.wpIdField,e.wpUrlField,e.airtableCacheField])],w=await S.selectRecordAsync(f,{fields:T});if(!w)throw new Error(`Record ${f} not found.`);let C=w.getCellValue(n),$=w.getCellValue(a);if(C&&$&&Date.parse(C)<=Date.parse($)){p("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let h={},s=!1;for(let e of d)try{let r=await x(w,e,F,I,f,_=>{c=!0});r&&r.changed&&(h[e.wpIdField]=(l=r.wpIds)!=null?l:null,h[e.wpUrlField]=(u=r.wpUrls)!=null?u:null,h[e.airtableCacheField]=(y=r.cacheUrls)!=null?y:null,s=!0)}catch(r){c=!0,p(`\u26A0\uFE0F  ${e.attachmentField}: ${r.message}`)}s?(c?p("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):h[a]=new Date().toISOString(),await S.updateRecordAsync(w,h),p("\u2705\xA0Media sync complete & fields updated")):p("\u2714\xA0No media changes detected \u2013 nothing to write")}var N=input.config(),R={airtableTable:"Series",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"primary_cta_image_attachment",wpIdField:"primary_cta_image_wp_id",wpUrlField:"primary_cta_image_link",airtableCacheField:"primary_cta_image_external",isMultiple:!1}]};M(R,N);})();
+</file>
+
+<file path="quick-sync-scripts/dist/series-sync.js">
+"use strict";(()=>{var y=i=>console.log(`[${new Date().toISOString()}]`,i),R=["publish","draft","trash","private"],I="API-SYNC",V="last_synced";function K(i,e=I){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function D(i,e,n){let t=new Set;for(let r in i){let s=i[r];typeof s=="string"?t.add(r):(t.add(s.airtableIdField),s.airtableLinkField&&t.add(s.airtableLinkField))}return t.add("wp_id").add(e).add(n),Array.from(t)}function q(i,e){return e==null?null:Array.isArray(e)?e.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function B(i,e){let n=i.parentTable,t={};for(let r in e){let s=e[r];if(typeof s=="string"){let c=i.getCellValue(r);s==="post_status"?t.post_status=c&&c.name?c.name.toLowerCase():typeof c=="string"?c.toLowerCase():null:t[s]=q(r,c);continue}let o=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);o&&(t[s.wpKey]=o)}return t}async function J(i,e,n){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(n)}),r=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${r.slice(0,500)}`);return{data:JSON.parse(r),status:t.status}}async function C(i,e){var F,h,E,T,L,v,A;let{airtableTable:n,fieldMap:t,envEndpoints:r,skuField:s,titleField:o,allowedStatuses:c=R,secretName:m=I}=i;if(!s||!o)throw new Error("quickSync: skuField and titleField are required");let{recordId:_,env:g}=e;if(!_)throw new Error("Automation must pass {recordId}.");if(!g||!r[g]){let j=Object.keys(r).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${j}`)}let b=r[g],k=Math.floor(Date.now()/1e3);y(`Quick-Sync (${n}) start \u2013 epoch ${k}`);let $=await input.secret(m),M=K($,m),N=base.getTable(n),x=D(t,s,o),l=await N.selectRecordAsync(_,{fields:x});if(!l)throw new Error(`Record ${_} not found in ${n}`);let a=B(l,t);(F=a.sku)!=null||(a.sku=l.getCellValueAsString(s));let d=typeof t[o]=="string"?t[o]:null;d&&((h=a[d])!=null||(a[d]=l.getCellValueAsString(o)||l.name)),a[V]=k;let w=d&&a[d]?a[d]:l.getCellValueAsString(o)||l.name;a.post_status&&!c.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:l.id,sku:a.sku,wp_id:l.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),y(`POSTing to ${b}`);let{data:p,status:O}=await J(b,M,f),u=(L=(E=p.term_id)!=null?E:p.post_id)!=null?L:(T=p==null?void 0:p.data)==null?void 0:T.post_id,S=(v=p.action)!=null?v:"unknown",P=(A=p.message)!=null?A:"";output.set("syncStatus",p&&u?"Success":`HTTP_${O}`),output.set("action",S),output.set("message",P),output.set("postTitle",w),output.set("wpPostId",u!=null?u:null),y(`\u2705 WP ${S} \u2013  ${w}`)}var U={series_title:"post_title",series_slug:"post_name",long_date:"post_date",website_status:"post_status",series_sku:"sku",excerpt:"post_excerpt",series_permalink:"custom_permalink_uri",global_categories:"global-categories",series_filter_category:"series-categories",topics:"topics",series_template:"series-templates",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},primary_cta_image:{airtableIdField:"primary_cta_image_wp_id",airtableLinkField:"primary_cta_image_link",wpKey:"manual1-image"},series_description_title:"series-description_title",series_description:"series-description",who_is_it_for:"series-who-is-it-for",series_purpose:"series-purpose",series_colour_1:"series-colour-1",series_colour_2:"series-colour-2",print_pdf_link:"link_five",custom_pdf_link:"link_ten",youtube_playlist:"youtube-playlist-link",spotify_playlist:"spotify-playlist-link",apple_playlist:"apple-playlist-link",highlights_video:"highlights-video",primary_cta_heading:"manual1-title",primary_cta_title:"manual1-link-title",primary_cta_link:"manual1-link",secondary_cta_heading:"manual2-title",secondary_cta_title:"manual2-link-title",secondary_cta_link:"manual2-link",seo_description:"_aioseo_description",session_title:"custom-session-title",sessions_list:"series-episode-list",session_list_1:"series-episode-list-more",session_list_2:"series-episode-list-3",session_list_3:"series-episode-list-4"},Q=input.config();C({airtableTable:"Series",skuField:"series_sku",titleField:"series_title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/series-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync"}},Q);})();
+</file>
+
+<file path="quick-sync-scripts/src/lib/media-helpers.ts">
+/*********************************************************************
+ * media-helpers.ts  –  shared “step 1” image‑sync utilities
+ *
+ * Usage in an entry file (e.g. series‑media.ts):
+ *
+ *   import { mediaSync } from './lib/media-helpers';
+ *
+ *   mediaSync({
+ *     airtableTable: 'Series',
+ *     imageFields: IMAGE_FIELDS,
+ *     envMediaEndpoints: {
+ *       prod:    'https://four12global.com/wp-json/wp/v2/media',
+ *       staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
+ *     },
+ *     lastModifiedField:  'media_last_modified',
+ *     publishTimestampField: 'media_publish_timestamp',
+ *   });
+ *********************************************************************/
+
+import { buildBasicAuth } from './sync-helpers';          // already exists
+
+/* =========  Small helpers ========= */
+const log = (msg: unknown) =>
+  console.log(`[${new Date().toISOString()}]`, msg);  // ← identical to sync-helpers
+
+/* =========  Types  ========= */
+export interface ImageFieldConfig {
+  /** Airtable attachment field (array of objects with .url)              */
+  attachmentField:      string;
+  /** Field that stores WP media ID(s) (“123, 456”)                        */
+  wpIdField:            string;
+  /** Field that stores WP media URL(s)                                    */
+  wpUrlField:           string;
+  /** Cache of the original Airtable attachment ID(s); lets us detect a changed img  */
+  airtableCacheField:   string;
+  /** Optional Airtable text field for external URL                        */
+  externalUrlField?:    string;
+  /** Multi‑upload?  Default false (= single attachment)                   */
+  isMultiple?: boolean;
+}
+
+export interface MediaSyncConfig {
+  airtableTable:          string;
+  envMediaEndpoints:      Record<string, string>;  // keyed by `env` input
+  imageFields:            ImageFieldConfig[];
+  lastModifiedField:      string;                  // “media_last_modified”
+  publishTimestampField:  string;                  // “media_publish_timestamp”
+  secretName?:            string;                  // default "API‑SYNC"
+}
+
+/* =========  Small helpers ========= */
+const SECRET_DEFAULT = 'API-SYNC';
+
+async function download(attachment: any) {
+  const res = await fetch(attachment.url);
+  if (!res.ok) throw new Error(`↘ download ${attachment.url} → HTTP ${res.status}`);
+  return {
+    blob: await res.blob() as Blob,
+    filename:  attachment.filename ?? 'file',
+    contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+    srcUrl: attachment.url,
+  };
+}
+
+async function uploadToWp(
+  endpoint: string,
+  basicAuth: string,
+  { blob, filename, contentType }: { blob: Blob; filename: string; contentType: string },
+  recordId?: string,
+) {
+  // Before you start an upload
+  log(`Uploading ${filename}${recordId ? ` for record ${recordId}` : ''} …`);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+      body: blob,
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.id) {
+      throw new Error(`↗ WP upload failed ${res.status}: ${JSON.stringify(json).slice(0,200)}`);
+    }
+    
+    // Success
+    log(`✅ Uploaded ${filename} → ${json.source_url} (wpId: ${json.id})`);
+    
+    return { id: String(json.id), url: json.source_url as string };
+  } catch (err) {
+    console.error(`❌ Upload failed ${filename}${recordId ? ` for record ${recordId}` : ''}: ${(err as Error).message}`);
+    throw err; // keep your upstream error handling intact
+  }
+}
+
+/* =========  Field‑by‑field processor ========= */
+async function processImageField(
+  record: any,
+  spec: ImageFieldConfig,
+  wpEndpoint: string,
+  basicAuth: string,
+  recordId: string,
+  onError?: (err: Error) => void,
+) {
+  const a = record.getCellValue(spec.attachmentField) ?? [];
+  const prevWpIds   = (record.getCellValue(spec.wpIdField)  ?? '') as string;
+  const prevWpUrls  = (record.getCellValue(spec.wpUrlField) ?? '') as string;
+  const prevCacheIdsRaw = (record.getCellValue(spec.airtableCacheField) ?? '') as string;
+  const prevIds = (prevCacheIdsRaw ?? '').split(',').filter(Boolean);
+  const externalUrl = spec.externalUrlField
+    ? (record.getCellValueAsString?.(spec.externalUrlField) || '').trim()
+    : '';
+
+  // If no attachments but an external link exists → just use that
+  if (a.length === 0 && externalUrl) {
+    const changed = externalUrl !== prevWpUrls;
+    return {
+      wpIds:     null,
+      wpUrls:    externalUrl,
+      cacheUrls: null,
+      changed,
+    };
+  }
+
+  /* ----- No attachment?  Maybe clear stale WP refs ------ */
+  if (a.length === 0) {
+    if (prevWpIds || prevWpUrls || prevCacheIdsRaw) {
+      return { wpIds: null, wpUrls: null, cacheUrls: null, changed: true };
+    }
+    return { changed: false };
+  }
+
+  /* ----- SINGLE attachment (99 % of your use‑cases) ----- */
+  if (!spec.isMultiple) {
+    const att = a[0];
+    if (prevIds.includes(att.id) && prevWpIds) {
+      log(`↩️ Reusing ${att.filename ?? 'file'} (wpId: ${prevWpIds})`);
+      return { changed: false };
+    }
+    // New file or first run
+    try {
+      const { blob, filename, contentType } = await download(att);
+      const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+      return { wpIds: id, wpUrls: url, cacheUrls: att.id, changed: true };
+    } catch (err) {
+      if (onError) onError(err as Error);
+      log(`⚠️  single-upload failed ${att.url}: ${(err as Error).message}`);
+      return { changed: false };
+    }
+  }
+
+  /* ----- MULTI attachment ----- */
+  if (spec.isMultiple) {
+    const uploads: Array<{id:string; url:string; airtableId:string}> = [];
+    for (const at of a) {
+      if (prevIds.includes(at.id)) {
+        log(`↩️ Reusing ${at.filename ?? 'file'}…`);
+        continue;
+      }
+      try {
+        const { blob, filename, contentType } = await download(at);
+        const { id, url } = await uploadToWp(wpEndpoint, basicAuth, { blob, filename, contentType }, recordId);
+        uploads.push({ id, url, airtableId: at.id });
+      } catch (err) {
+        if (onError) onError(err as Error);
+        log(`❌  multi‑upload failed ${at.url}: ${(err as Error).message}`);
+      }
+    }
+    if (uploads.length || a.some((at: any) => prevIds.includes(at.id))) {
+      // Collect everything you want to keep
+      const keptIds   = a.filter((at: any) => prevIds.includes(at.id))
+                         .map((at: any) => at.id);
+      const keptWpIds = prevWpIds.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+      const keptWpUrls = prevWpUrls.split(',').filter(Boolean)
+                         .filter((_, idx) => prevIds.includes(a[idx]?.id)); // crude but works
+
+      return {
+        wpIds:     [...keptWpIds, ...uploads.map(u => u.id)].join(','),
+        wpUrls:    [...keptWpUrls, ...uploads.map(u => u.url)].join(','),
+        cacheUrls: [...keptIds ,  ...uploads.map(u => u.airtableId)].join(','),
+        changed:   true,
+      };
+    }
+    return { changed: false };
+  }
+  // fallback
+  return { changed: false };
+}
+
+/* =========  Orchestrator ========= */
+export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
+  let hadErrors = false;
+  const {
+    airtableTable,
+    envMediaEndpoints,
+    imageFields,
+    lastModifiedField,
+    publishTimestampField,
+    secretName = SECRET_DEFAULT,
+  } = cfg;
+
+  /* —— Inputs —— */
+  // Use the passed-in inputConfig object, just like in quickSync
+  const { recordId, env } = inputConfig;
+  if (!recordId) throw new Error('Automation must pass {recordId}.');
+  // The same safe check for the 'env' variable
+  if (!env || !envMediaEndpoints[env]) {
+    const availableEnvs = Object.keys(envMediaEndpoints).join(', ');
+    throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
+  }
+  const wpEndpoint = envMediaEndpoints[env];
+  const basicAuth  = buildBasicAuth(await input.secret(secretName), secretName);
+
+  const table  = base.getTable(airtableTable);
+  const fields = [
+    lastModifiedField,
+    publishTimestampField,
+    ...imageFields.flatMap(f => [
+      f.attachmentField,
+      f.wpIdField,
+      f.wpUrlField,
+      f.airtableCacheField,
+    ]),
+  ];
+  const rec = await table.selectRecordAsync(recordId, { fields });
+  if (!rec) throw new Error(`Record ${recordId} not found.`);
+
+  /* —— Short‑circuit if nothing changed —— */
+  const lastMod  = rec.getCellValue(lastModifiedField)       as string | null;
+  const lastSync = rec.getCellValue(publishTimestampField)   as string | null;
+  if (lastMod && lastSync && Date.parse(lastMod) <= Date.parse(lastSync)) {
+    log('⏭ Images unchanged since last sync – skipping');
+    return;
+  }
+
+  /* —— Process every image spec —— */
+  const updates: Record<string, any> = {};
+  let anyChanges = false;
+
+  for (const spec of imageFields) {
+    try {
+      const r = await processImageField(rec, spec, wpEndpoint, basicAuth, recordId, (err) => { hadErrors = true; });
       if (r && r.changed) {
         updates[spec.wpIdField]          = r.wpIds   ?? null;
         updates[spec.wpUrlField]         = r.wpUrls  ?? null;
@@ -5123,9 +5813,9 @@ log(`POSTing to ${wpUrl}`);
 const { data, status } = await postToWp(wpUrl, authB64, payload);
 
 /* ── Handle response ── */
-const postId  = data.post_id ?? data?.data?.post_id;
-const action  = data.action  ?? 'unknown';
-const message = data.message ?? '';
+const postId = data.term_id ?? data.post_id ?? data?.data?.post_id;
+const action   = data.action  ?? 'unknown';
+const message  = data.message ?? '';
 
 output.set(
   'syncStatus',
@@ -5134,9 +5824,9 @@ output.set(
 );
 output.set('action',     action);
 output.set('message',    message);
-output.set('postTitle',  titleForLogging); // Use our new logging variable
-output.set('wpPostId',   postId ?? null);  // Coalesce undefined to null
-log(`✅ WP ${action} –  ${titleForLogging}`); // Use our new logging variable
+output.set('postTitle',  titleForLogging);
+output.set('wpPostId',   postId ?? null);
+log(`✅ WP ${action} –  ${titleForLogging}`);
 }
 </file>
 
@@ -5155,7 +5845,7 @@ const seriesMediaConfig: MediaSyncConfig = {
   // 2. WP Media endpoints per environment
   envMediaEndpoints: {
     prod: 'https://four12global.com/wp-json/wp/v2/media',
-    // staging: 'https://your‑staging‑site.cloudwaysapps.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
   },
 
   // 3. The fields you use in Airtable to track media changes
@@ -5304,144 +5994,6 @@ quickSync({
 }, scriptInput);
 </file>
 
-<file path="quick-sync-scripts/env.d.ts">
-// Airtable scripting globals (injected at runtime)
-declare const input:  any;
-declare const output: any;
-declare const base:   any;
-</file>
-
-<file path="quick-sync-scripts/README.md">
-# Airtable Script Templates for Quick-Sync
-
-This directory contains master templates for the JavaScript code that runs inside Airtable Automations. Using these templates ensures a consistent, reliable, and easy-to-extend synchronization process.
-
-**Do not edit the template files directly.** Always copy their contents to create new scripts for each CPT or Taxonomy you want to sync.
-
-## The Two-Step Sync Process
-
-For any given record, the sync is a two-step process within Airtable Automations:
-
-1.  **Media Sync (Step 1):** The `TEMPLATE_MediaScript.js` runs first. Its only job is to upload image attachments to the WordPress Media Library and write the resulting WordPress Media IDs back into the Airtable record.
-
-2.  **Data Sync (Step 2):** The `TEMPLATE_QuickSyncScript.js` runs second. It gathers all the record's data—including the Media IDs from Step 1—and sends the complete package to the custom WordPress endpoint.
-
-This two-step approach is crucial because it ensures that when the main data sync happens, we are sending stable WordPress Media IDs, not temporary URLs.
-
----
-
-## How to Use `TEMPLATE_MediaScript.js`
-
-Follow these steps to set up the media sync for a new CPT (e.g., "Events").
-
-1.  **Copy Template:** Open `TEMPLATE_MediaScript.js` and copy its entire contents.
-2.  **Create Airtable Script:** In your Airtable base, go to **Automations**. Create a new automation or edit an existing one. Add a "Run a script" action.
-3.  **Paste Code:** Paste the copied code into the Airtable script editor.
-4.  **Add Input Variable:** The script requires one input variable. In the left panel, add a variable named `recordId` and set its value to the `Airtable record ID` from the automation's trigger step.
-5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block at the top of the script.
-    ```javascript
-    // 1. WordPress Base URL
-    const WP_BASE_URL = "https://four12global.com";
-
-    // 2. Airtable Table Name
-    const TABLE_NAME = "Events"; // Your CPT's table name
-
-    // 3. Secret Name
-    const API_SECRET_NAME = "API-SYNC";
-
-    // 4. Image Field Configurations
-    const IMAGE_FIELD_CONFIGS = [
-      {
-        airtableAttachmentField: "event_featured_image", // Attachment field in your Events table
-        wpIdField: "event_featured_image_wp_id",         // Number field to store the WP ID
-        wpLinkField: "event_featured_image_link",        // URL/Text field for the WP URL
-        externalCacheField: "event_featured_image_ext",  // URL/Text field for the Airtable URL
-      }
-      // Add more objects if the Event CPT has more images
-    ];
-
-    // 5. Control Fields
-    const CONTROL_FIELDS = {
-      lastModifiedField: "event_media_last_modified", // A "Last Modified Time" field watching your attachment fields
-      publishTimestampField: "event_media_publish_ts",  // A "Date" field
-    };
-    ```
-6.  **Set Secret:** Ensure your automation has access to the `API-SYNC` secret containing your WordPress `username:application_password`.
-
----
-
-## How to Use `TEMPLATE_QuickSyncScript.js`
-
-Follow these steps to set up the main data sync. This action should run **after** the Media Script action in the same automation.
-
-1.  **Copy Template:** Open `TEMPLATE_QuickSyncScript.js` and copy its entire contents.
-2.  **Create Airtable Script:** Add a new "Run a script" action to your automation.
-3.  **Paste Code:** Paste the copied code into the script editor.
-4.  **Add Input Variable:** Just like before, add the `recordId` input variable.
-5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block. The `FIELD_MAP` is the most important part.
-    ```javascript
-    // 1. WordPress Base URL
-    const WP_BASE_URL = "https://four12global.com";
-
-    // 2. The specific route for your sync endpoint
-    const WP_ROUTE_SUFFIX = "/wp-json/four12/v1/event-sync"; // The endpoint for your CPT
-
-    // 3. Airtable Table Name
-    const TABLE_NAME = "Events";
-
-    // 4. Secret Name
-    const API_SECRET_NAME = "API-SYNC";
-
-    // 5. The Airtable field for the unique SKU.
-    const SKU_FIELD = "event_sku";
-
-    // 6. The Airtable field for the WordPress Post ID.
-    const WP_ID_FIELD = "wp_id";
-
-    // 7. Field Map: 'Airtable Field Name': 'wp_payload_key'
-    const FIELD_MAP = {
-      'event_title':          'post_title',
-      'event_slug':           'post_name',
-      'event_categories':     'event-categories',
-      'event_featured_image_wp_id': '_thumbnail_id', // Use the ID field from the media script!
-      'event_description':    'event-description',
-    };
-    ```
-
-## Debugging
-
--   Always check the **Run history** of your Airtable automation.
--   The script logs its progress to the console, which is visible in the run history.
--   The script also uses `output.set()` to provide structured results, like `payloadPreview` and `wpResponse`, which are invaluable for troubleshooting.
-</file>
-
-<file path="quick-sync-scripts/tsconfig.json">
-{
-    "compilerOptions": {
-      "target": "es2017",
-      "lib": ["es2017", "dom"],
-      "module": "commonjs",
-      "strict": true,
-      "esModuleInterop": true,
-      "outDir": "dist"
-    },
-    "include": ["src/**/*", "env.d.ts"]
-  }
-</file>
-
-<file path=".gitattributes">
-# Auto detect text files and perform LF normalization
-* text=auto
-</file>
-
-<file path="package.json">
-{
-  "devDependencies": {
-    "typescript": "^5.8.3"
-  }
-}
-</file>
-
 <file path="quick-sync-scripts/package.json">
 {
   "name": "f12-quick-sync",
@@ -5452,17 +6004,15 @@ Follow these steps to set up the main data sync. This action should run **after*
     "type": "git",
     "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
   },
-
   "scripts": {
     "check": "tsc --noEmit",
     "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
     "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
   },
-
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "esbuild": "^0.25.8",
-    "typescript": "^5.8.3",
-    "@types/node": "^20.11.0"
+    "typescript": "^5.8.3"
   }
 }
 </file>

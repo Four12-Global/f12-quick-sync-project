@@ -16,6 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'F12_QUICK_SYNC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'F12_QUICK_SYNC_URL', plugin_dir_url( __FILE__ ) );
 
+
 /**
  * Main plugin class to coordinate all modules.
  */
@@ -49,6 +50,9 @@ final class F12_Quick_Sync_Manager {
     private function load_dependencies() {
         require_once F12_QUICK_SYNC_PATH . 'core-helpers.php';
         require_once F12_QUICK_SYNC_PATH . 'module-base.php';
+        
+        // Load JetEngine helpers (safe even if JetEngine is disabled).
+        require_once F12_QUICK_SYNC_PATH . 'relations.php';
         
         // Load Parsedown library if it exists
         if ( file_exists( F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php' ) ) {
