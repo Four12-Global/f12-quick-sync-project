@@ -51,9 +51,6 @@ final class F12_Quick_Sync_Manager {
         require_once F12_QUICK_SYNC_PATH . 'core-helpers.php';
         require_once F12_QUICK_SYNC_PATH . 'module-base.php';
         
-        // Load JetEngine helpers (safe even if JetEngine is disabled).
-        require_once F12_QUICK_SYNC_PATH . 'relations.php';
-        
         // Load Parsedown library if it exists
         if ( file_exists( F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php' ) ) {
             require_once F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php';
@@ -103,3 +100,20 @@ final class F12_Quick_Sync_Manager {
 
 // Initialize the plugin manager.
 F12_Quick_Sync_Manager::get_instance();
+
+/**
+ * Load the JetEngine relationship helper once JetEngine is available.
+ */
+add_action( 'plugins_loaded', function () {
+	// Bail if JetEngine isn't active (avoids fatals in staging without the plugin).
+	if ( ! function_exists( 'jet_engine' ) ) {
+		return;
+	}
+
+	// Already loaded?  Skip (prevents redeclare in tests/CLI).
+	if ( function_exists( 'f12_set_jet_relation' ) ) {
+		return;
+	}
+
+	require_once __DIR__ . '/relations.php'; // <-- adjust path if you move the file
+}, 20 ); // priority 20 : JetEngine boots at 10, so we're safely after it

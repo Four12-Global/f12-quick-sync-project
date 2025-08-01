@@ -491,11 +491,16 @@ abstract class F12_Quick_Sync_Module_Base {
                 }
             }
 
-            $mode   = $cfg['mode'] ?? 'replace';         // default to replace
-            $result = f12_set_jet_relation( $cfg['relation_id'], $child_id, $parent_ids, $mode );
+            $result = f12_set_jet_relation(
+                $cfg['relation_id'],
+                $child_id,     // the Session post
+                $parent_ids    // array of Series parents
+            );
 
             if ( is_wp_error( $result ) ) {
-                f12_sync_log( '[JetEngine] ' . $result->get_error_message() );
+                f12_sync_log( $result->get_error_message() );
+                // Optional: halt the entire sync if parent is mandatory
+                // return $result;
             } else {
                 $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
             }

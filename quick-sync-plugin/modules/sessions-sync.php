@@ -49,10 +49,10 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
         // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
         $this->jet_engine_relation_map = [
             'jet_relation_series_parent' => [
-                'relation_id'      => 63,          // JetEngine ID
-                'parent_cpt'       => 'series',    // parent custom post type
-                'parent_sku_meta'  => 'sku',       // meta_key storing the SKU on parent
-                'mode'             => 'replace',   // or 'update' if WP editors may add links
+                'relation_id'      => 63,
+                'parent_cpt'       => 'series',
+                'parent_sku_meta'  => 'sku',
+                // no 'mode' key — helper is hard-coded to replace
             ],
         ];
 

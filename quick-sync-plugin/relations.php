@@ -1,29 +1,40 @@
 <?php
 /**
- * Safely connect JetEngine relations.
- *
- * @param int        $rel_id   JetEngine relation ID (63 for Series→Sessions).
- * @param int        $parent   WP ID of the Series parent.
- * @param int|int[]  $children One or more Session IDs.
- * @param string     $mode     update|replace|disconnect  (default: update)
- *
- * @return true|WP_Error
+ * JetEngine relationship utilities.
  */
-function f12_set_jet_relation( int $rel_id, int $parent, $children, string $mode = 'update' ) {
+if ( ! function_exists( 'jet_engine' ) ) {
+	return; // JetEngine disabled – skip.
+}
 
-	// Hard-fail if the parent post vanished.
-	if ( ! get_post( $parent ) ) {
-		return new WP_Error( 'invalid_parent', "Series {$parent} not found", [ 'status' => 400 ] );
+if ( ! function_exists( 'f12_set_jet_relation' ) ) {
+
+	/**
+	 * Replace the **parent list** of one child post.
+	 *
+	 * @param int   $rel_id     JetEngine relation ID (e.g. 63).
+	 * @param int   $child_id   WP ID of the Session (child).
+	 * @param int[] $parent_ids One or more Series parent IDs.
+	 * @return true|WP_Error
+	 */
+	function f12_set_jet_relation( int $rel_id, int $child_id, array $parent_ids ) {
+
+		if ( empty( $parent_ids ) ) {
+			return new WP_Error( 'no_parent', "[JetEngine] No parent IDs supplied for child {$child_id}.", [ 'status' => 400 ] );
+		}
+
+		$rel = jet_engine()->relations->get_active_relations( $rel_id );
+		if ( ! $rel ) {
+			return new WP_Error( 'invalid_rel', "[JetEngine] Relation {$rel_id} missing.", [ 'status' => 400 ] );
+		}
+
+		// We are providing PARENT IDs for a CHILD item.
+		$rel->set_update_context( 'child' );
+		$rel->update( $child_id, $parent_ids, 'replace' ); // nukes & overwrites the child's parents
+
+		f12_sync_log(
+			"[JetEngine] Child {$child_id} now linked to parent(s): " . implode( ',', $parent_ids )
+		);
+
+		return true;
 	}
-
-	$rel = jet_engine()->relations->get_active_relations( $rel_id );
-
-	if ( ! $rel ) {
-		return new WP_Error( 'invalid_rel', "Relation {$rel_id} missing", [ 'status' => 400 ] );
-	}
-
-	$rel->set_update_context( 'child' );               // We’re passing children
-	$rel->update( $parent, (array) $children, $mode ); // JetEngine does the heavy lifting
-
-	return true;
 }
