@@ -322,3 +322,55 @@ Throttle on the Airtable Side: To avoid overwhelming the server, process no more
 Use the wp_id Fast-Path: Ensure your Airtable scripts store the post_id/term_id returned by the API and send it back on subsequent syncs.
 
 Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remember to add its key to the module's $allowed_meta_keys array.
+
+
+##Relationships
+
+# 1. The Core Principle: Orchestrator vs. Specialist
+
+The success of this system hinges on a clear separation of concerns between two key files:
+
+- **The Orchestrator (`module-base.php`):** This file is the "manager." It knows *what* needs to be done but not the low-level details of *how*. Its responsibilities are:
+    - To parse the incoming API payload.
+    - To identify that a relationship needs to be updated (by seeing the `jet_relation_series_parent` key).
+    - To extract the necessary information (the child's ID and the parent's SKU).
+    - To delegate the actual relationship work to a specialist.
+- **The Specialist (`relations.php`):** This file is the "expert." It knows the specific, multi-step process of interacting with the JetEngine API. Its responsibilities are:
+    - To accept high-level instructions (e.g., "link this child to this parent SKU").
+    - To perform all the necessary lookups (finding the parent post by SKU).
+    - To execute the precise, sequential commands required by the JetEngine API (`get_active_relations`, `set_update_context`, `update`).
+    - To handle all API-specific logic, keeping the orchestrator clean.
+
+This architecture ensures that if the JetEngine API ever changes, we only need to update the "specialist" (`relations.php`), leaving the "orchestrator" (`module-base.php`) untouched.
+
+---
+
+## 2. End-to-End Data Flow
+
+Here is the step-by-step journey of a relationship sync from Airtable to the WordPress database:
+
+1. **Airtable (`QuickSync Script`):** A JSON payload is constructed. The child post's SKU is the top-level `sku`, and the parent post's SKU is placed in an array within the `fields` object (e.g., `"jet_relation_series_parent": ["S0099"]`).
+2. **WordPress (`f12-quick-sync.php`):** The main plugin file receives the POST request. It acts as a router, directing the request to the correct module handler based on the endpoint slug (e.g., `/sessions-sync` routes to `F12_Sessions_Sync_Module`).
+3. **The Module (`modules/sessions-sync.php`):** This file provides the **configuration**. It tells the framework that the payload key `jet_relation_series_parent` corresponds to JetEngine `relation_id: 63` and that the parent lives in the `series` CPT.
+4. **The Orchestrator (`module-base.php`):** The `handle_sync_request` method begins processing. After creating/updating the core post, it calls the `_process_jet_engine_relations` method. This method:
+    - Finds the `jet_relation_series_parent` key in the payload.
+    - Extracts the parent SKU (`S0099`).
+    - Calls the high-level specialist function `f12_set_relation_parent_by_sku()`, passing it the child's ID, the parent's SKU, and the relation configuration.
+5. **The Specialist (`relations.php`):** The `f12_set_relation_parent_by_sku()` function executes the core logic:
+    - It uses the helper `f12_get_post_by_sku()` to find the parent post's ID (e.g., `326588`) from its SKU (`S0099`).
+    - It gets the JetEngine relation object using `jet_engine()->relations->get_active_relations(63)`.
+    - **CRITICAL STEP:** It calls `$rel->set_update_context('child')`. This tells JetEngine, "The action I'm about to perform is from the child's perspective. You should **replace** any existing parents for this child with the one I'm about to provide."
+    - It calls `$rel->update(326588, 334333)`, passing the parent ID and child ID as single integers.
+6. **The Database (`wp_postmeta`):** Because the "Register separate DB table" setting is OFF for this relation, JetEngine saves the link by creating/updating a row in the `wp_postmeta` table where `post_id` is the child's ID, `meta_key` is `jet_engine_relation_series_resources`, and `meta_value` is the parent's ID.
+
+---
+
+## 3. Component Breakdown
+
+All of these pieces must work together:
+
+- **`modules/sessions-sync.php` (The Configuration):** Defines the `jet_engine_relation_map`. Without this, the framework wouldn't know what to do with the `jet_relation_series_parent` payload key.
+- **`module-base.php` (The Orchestrator):** The `_process_jet_engine_relations` method reads the configuration and delegates the task.
+- **`relations.php` (The Specialist):** Contains the `f12_set_relation_parent_by_sku` function that knows how to talk to the JetEngine API.
+- **`f12-quick-sync.php` (The Loader):** The `plugins_loaded` action hook at the bottom correctly checks for `function_exists('f12_set_relation_parent_by_sku')` before including `relations.php`. This ensures the specialist is available when the orchestrator needs it.
+- **`core-helpers.php` (The Foundation):** Provides the essential `f12_get_post_by_sku()` function, which is critical for converting the parent's SKU into a usable WordPress Post ID.

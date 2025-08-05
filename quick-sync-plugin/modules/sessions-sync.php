@@ -36,6 +36,7 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'series-categories' => 'series-categories',
             'topics'            => 'topics',
             'series-templates'  => 'series-templates',
+            'author-speaker'    => 'author-speaker',
         ];
 
         $this->image_meta_map = [
@@ -45,6 +46,8 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'banner-image',
             'manual1-image',
         ];
+
+        $this->post_content_key = 'post_content';
 
         // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
         $this->jet_engine_relation_map = [

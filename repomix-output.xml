@@ -3135,6 +3135,58 @@ Throttle on the Airtable Side: To avoid overwhelming the server, process no more
 Use the wp_id Fast-Path: Ensure your Airtable scripts store the post_id/term_id returned by the API and send it back on subsequent syncs.
 
 Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remember to add its key to the module's $allowed_meta_keys array.
+
+
+##Relationships
+
+# 1. The Core Principle: Orchestrator vs. Specialist
+
+The success of this system hinges on a clear separation of concerns between two key files:
+
+- **The Orchestrator (`module-base.php`):** This file is the "manager." It knows *what* needs to be done but not the low-level details of *how*. Its responsibilities are:
+    - To parse the incoming API payload.
+    - To identify that a relationship needs to be updated (by seeing the `jet_relation_series_parent` key).
+    - To extract the necessary information (the child's ID and the parent's SKU).
+    - To delegate the actual relationship work to a specialist.
+- **The Specialist (`relations.php`):** This file is the "expert." It knows the specific, multi-step process of interacting with the JetEngine API. Its responsibilities are:
+    - To accept high-level instructions (e.g., "link this child to this parent SKU").
+    - To perform all the necessary lookups (finding the parent post by SKU).
+    - To execute the precise, sequential commands required by the JetEngine API (`get_active_relations`, `set_update_context`, `update`).
+    - To handle all API-specific logic, keeping the orchestrator clean.
+
+This architecture ensures that if the JetEngine API ever changes, we only need to update the "specialist" (`relations.php`), leaving the "orchestrator" (`module-base.php`) untouched.
+
+---
+
+## 2. End-to-End Data Flow
+
+Here is the step-by-step journey of a relationship sync from Airtable to the WordPress database:
+
+1. **Airtable (`QuickSync Script`):** A JSON payload is constructed. The child post's SKU is the top-level `sku`, and the parent post's SKU is placed in an array within the `fields` object (e.g., `"jet_relation_series_parent": ["S0099"]`).
+2. **WordPress (`f12-quick-sync.php`):** The main plugin file receives the POST request. It acts as a router, directing the request to the correct module handler based on the endpoint slug (e.g., `/sessions-sync` routes to `F12_Sessions_Sync_Module`).
+3. **The Module (`modules/sessions-sync.php`):** This file provides the **configuration**. It tells the framework that the payload key `jet_relation_series_parent` corresponds to JetEngine `relation_id: 63` and that the parent lives in the `series` CPT.
+4. **The Orchestrator (`module-base.php`):** The `handle_sync_request` method begins processing. After creating/updating the core post, it calls the `_process_jet_engine_relations` method. This method:
+    - Finds the `jet_relation_series_parent` key in the payload.
+    - Extracts the parent SKU (`S0099`).
+    - Calls the high-level specialist function `f12_set_relation_parent_by_sku()`, passing it the child's ID, the parent's SKU, and the relation configuration.
+5. **The Specialist (`relations.php`):** The `f12_set_relation_parent_by_sku()` function executes the core logic:
+    - It uses the helper `f12_get_post_by_sku()` to find the parent post's ID (e.g., `326588`) from its SKU (`S0099`).
+    - It gets the JetEngine relation object using `jet_engine()->relations->get_active_relations(63)`.
+    - **CRITICAL STEP:** It calls `$rel->set_update_context('child')`. This tells JetEngine, "The action I'm about to perform is from the child's perspective. You should **replace** any existing parents for this child with the one I'm about to provide."
+    - It calls `$rel->update(326588, 334333)`, passing the parent ID and child ID as single integers.
+6. **The Database (`wp_postmeta`):** Because the "Register separate DB table" setting is OFF for this relation, JetEngine saves the link by creating/updating a row in the `wp_postmeta` table where `post_id` is the child's ID, `meta_key` is `jet_engine_relation_series_resources`, and `meta_value` is the parent's ID.
+
+---
+
+## 3. Component Breakdown
+
+All of these pieces must work together:
+
+- **`modules/sessions-sync.php` (The Configuration):** Defines the `jet_engine_relation_map`. Without this, the framework wouldn't know what to do with the `jet_relation_series_parent` payload key.
+- **`module-base.php` (The Orchestrator):** The `_process_jet_engine_relations` method reads the configuration and delegates the task.
+- **`relations.php` (The Specialist):** Contains the `f12_set_relation_parent_by_sku` function that knows how to talk to the JetEngine API.
+- **`f12-quick-sync.php` (The Loader):** The `plugins_loaded` action hook at the bottom correctly checks for `function_exists('f12_set_relation_parent_by_sku')` before including `relations.php`. This ensures the specialist is available when the orchestrator needs it.
+- **`core-helpers.php` (The Foundation):** Provides the essential `f12_get_post_by_sku()` function, which is critical for converting the parent's SKU into a usable WordPress Post ID.
 </file>
 
 <file path="quick-sync-scripts/dist/author-sync.js">
@@ -3479,6 +3531,7 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'series-categories' => 'series-categories',
             'topics'            => 'topics',
             'series-templates'  => 'series-templates',
+            'author-speaker'    => 'author-speaker',
         ];
 
         $this->image_meta_map = [
@@ -3488,6 +3541,8 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'banner-image',
             'manual1-image',
         ];
+
+        $this->post_content_key = 'post_content';
 
         // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
         $this->jet_engine_relation_map = [
@@ -3502,1685 +3557,6 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
     }
 
 }
-</file>
-
-<file path="quick-sync-plugin/relations.php">
-<?php
-// relations.php   (final)
-
-/**
- * Replace a Session’s parent Series link.
- *
- * @param int   $rel_id     Relation ID (63).
- * @param int   $child_id   WP ID of the Session (resources post).
- * @param int[] $parent_ids One or more Series IDs (usually one).
- * @return true|WP_Error
- */
-function f12_set_jet_relation( int $rel_id, int $child_id, array $parent_ids ) {
-
-	if ( empty( $parent_ids ) ) {
-		return new WP_Error( 'no_parent', 'No parent IDs supplied.', [ 'status' => 400 ] );
-	}
-
-	$rel = jet_engine()->relations->get_active_relations( $rel_id );
-	if ( ! $rel ) {
-		return new WP_Error( 'invalid_rel', "Relation {$rel_id} missing.", [ 'status' => 400 ] );
-	}
-
-	// ── Orientation that proved to work ──
-	$rel->set_update_context( 'child' );          // << only change
-	$rel->update( $child_id, $parent_ids, 'replace' );
-
-	error_log( "[JetEngine] linked child={$child_id} ↔ parent={$parent_ids[0]}" );
-
-	return true;
-}
-</file>
-
-<file path="quick-sync-plugin/repomix-output.xml">
-This file is a merged representation of the entire codebase, combined into a single document by Repomix.
-
-<file_summary>
-This section contains a summary of this file.
-
-<purpose>
-This file contains a packed representation of the entire repository's contents.
-It is designed to be easily consumable by AI systems for analysis, code review,
-or other automated processes.
-</purpose>
-
-<file_format>
-The content is organized as follows:
-1. This summary section
-2. Repository information
-3. Directory structure
-4. Repository files (if enabled)
-5. Multiple file entries, each consisting of:
-  - File path as an attribute
-  - Full contents of the file
-</file_format>
-
-<usage_guidelines>
-- This file should be treated as read-only. Any changes should be made to the
-  original repository files, not this packed version.
-- When processing this file, use the file path to distinguish
-  between different files in the repository.
-- Be aware that this file may contain sensitive information. Handle it with
-  the same level of security as you would the original repository.
-</usage_guidelines>
-
-<notes>
-- Some files may have been excluded based on .gitignore rules and Repomix's configuration
-- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Files matching patterns in .gitignore are excluded
-- Files matching default ignore patterns are excluded
-- Files are sorted by Git change count (files with more changes are at the bottom)
-</notes>
-
-</file_summary>
-
-<directory_structure>
-modules/
-  author-sync.php
-  leaders-sync.php
-  series-sync.php
-  sessions-sync.php
-core-helpers.php
-f12-quick-sync.php
-module-base.php
-README.md
-relations.php
-</directory_structure>
-
-<files>
-This section contains the contents of the repository's files.
-
-<file path="modules/author-sync.php">
-<?php
-/**
- * Quick Sync Module: Author/Speaker Taxonomy (Production Ready)
- *
- * This module syncs data from Airtable to the 'author_speaker' WordPress taxonomy.
- *
- * Features:
- * - Implements a "whitelist" for meta fields to ensure data integrity and prevent database pollution.
- * - Unknown meta keys from the payload are logged and ignored, not stored.
- * - Restores the robust `wp_id` -> `SKU` -> `slug` lookup chain for de-duplication.
- * - Only deletes meta on explicit `null` values to prevent accidental data loss.
- * - Integrates Parsedown to convert Markdown bios to safe HTML.
- * - Provides detailed logging and includes warnings in the API response for ignored fields.
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-
-class F12_Author_Speaker_Sync_Module {
-
-    // --- Configuration ---
-    private $endpoint_slug = 'author-sync';
-    private $taxonomy = 'author_speaker';
-    private $sku_meta_key = 'sku';
-
-    /**
-     * @var array A whitelist of meta keys allowed to be synced from the payload.
-     * All other meta keys will be logged as a warning and ignored.
-     */
-    private $allowed_meta_keys = [
-        'profile_image',
-        'status',
-        // Add other known, valid meta keys here as your schema evolves.
-        // e.g., 'author_twitter_handle', 'author_linkedin_url'
-    ];
-    
-    /**
-     * Public getter for the main plugin router.
-     * @return string The slug for the REST API endpoint (e.g., 'author-sync').
-     */
-    public function get_endpoint_slug() {
-        return $this->endpoint_slug;
-    }
-
-    /**
-     * Public getter for the main plugin router to define API arguments.
-     * @return array Standard argument definitions for the REST endpoint.
-     */
-    public function get_rest_api_args() {
-        return [
-            'sku' => [
-                'type'              => 'string',
-                'required'          => true,
-                'sanitize_callback' => 'sanitize_text_field',
-                'description'       => 'Unique identifier (SKU) for the Author/Speaker term.',
-            ],
-            'fields' => [
-                'type'              => 'object',
-                'required'          => true,
-                'description'       => 'Object containing all term data fields.',
-            ],
-            'wp_id' => [
-                'type'              => 'integer',
-                'required'          => false,
-                'sanitize_callback' => 'absint',
-                'description'       => 'WordPress Term ID for fast-path updates.',
-            ],
-            'airtableRecordId' => [
-                'type'              => 'string',
-                'required'          => false,
-                'sanitize_callback' => 'sanitize_text_field',
-                'description'       => 'Optional Airtable Record ID for logging.',
-            ],
-        ];
-    }
-    
-    /**
-     * The main handler for the sync request.
-     */
-    public function handle_sync_request( WP_REST_Request $request ) {
-        $json_params = $request->get_json_params();
-
-        // --- 1. Validate Payload ---
-        $sku = isset( $json_params['sku'] ) ? sanitize_text_field( $json_params['sku'] ) : null;
-        $payload = isset( $json_params['fields'] ) ? (array) $json_params['fields'] : null;
-        $wp_id = isset( $json_params['wp_id'] ) ? absint( $json_params['wp_id'] ) : 0;
-        
-        if ( empty($sku) || empty($payload) || empty($payload['name']) ) {
-             return new WP_Error('f12_invalid_author_payload', 'Request requires a top-level SKU and a fields object containing at least a "name".', ['status' => 400]);
-        }
-        
-        // --- 2. Find Existing Term ---
-        $existing_term = $this->find_existing_term($sku, $payload, $wp_id);
-        $mode = $existing_term ? 'update' : 'create';
-        
-        // --- 3. Prepare Core Term Data ---
-        $name = sanitize_text_field($payload['name']);
-        $slug = isset($payload['slug']) ? sanitize_title($payload['slug']) : sanitize_title($name);
-        // Prefer as_description, then description, then empty string
-        $raw_description = $payload['as_description'] ?? $payload['description'] ?? '';
-        if (isset($payload['as_description']) && is_string($payload['as_description']) && class_exists('Parsedown')) {
-            $description = wp_kses_post(Parsedown::instance()->setSafeMode(true)->text($payload['as_description']));
-        } else {
-            $description = is_string($raw_description) ? $raw_description : '';
-        }
-        // Build term_data WITHOUT 'description'
-        $term_data = [
-            'slug' => $slug,
-        ];
-
-        // --- 4. Create or Update Term ---
-        if ('update' === $mode) {
-            $result = wp_update_term($existing_term->term_id, $this->taxonomy, $term_data);
-            $term_id = is_wp_error($result) ? 0 : $existing_term->term_id;
-        } else {
-            $result = wp_insert_term($name, $this->taxonomy, $term_data);
-            $term_id = is_wp_error($result) ? 0 : (int) $result['term_id'];
-        }
-
-        // --- Save the rich-text HTML into term-meta (as_description) ---
-        if ($term_id) {
-            $current = get_term_meta($term_id, 'as_description', true);
-            if ($current !== $description) {
-                update_term_meta($term_id, 'as_description', wp_kses_post($description));
-            }
-        }
-
-        if (is_wp_error($result) || $term_id === 0) {
-            $error_message = is_wp_error($result) ? $result->get_error_message() : 'Term could not be created or updated.';
-            return new WP_Error('f12_term_save_failed', $error_message, ['status' => 500]);
-        }
-
-        // --- 5. Process Meta Fields (using the Whitelist approach) ---
-        $this->process_meta_fields($term_id, $sku, $payload, $ignored_keys_for_response);
-        
-        // --- 6. Return Success Response ---
-        $response_data = [
-            'term_id' => $term_id,
-            'action'  => $mode,
-            'sku'     => $sku,
-            'message' => sprintf('Author/Speaker term (ID: %d) %s successfully.', $term_id, $mode),
-        ];
-
-        if (!empty($ignored_keys_for_response)) {
-            $response_data['warnings'] = [
-                'ignored_meta_keys' => array_unique($ignored_keys_for_response)
-            ];
-        }
-
-        return rest_ensure_response($response_data);
-    }
-    
-    /**
-     * Finds an existing term using the robust `wp_id` -> `SKU` -> `slug` lookup chain.
-     *
-     * @param string $sku The unique SKU for the term.
-     * @param array $payload The incoming fields payload, used to get the slug.
-     * @param int $wp_id The WordPress Term ID, if provided.
-     * @return WP_Term|null The found term object or null.
-     */
-    private function find_existing_term($sku, $payload, $wp_id) {
-        // 1. Fast-path: Check provided Term ID first.
-        if ($wp_id > 0) {
-            $term = get_term($wp_id, $this->taxonomy);
-            if ($term && !is_wp_error($term) && get_term_meta($term->term_id, $this->sku_meta_key, true) === $sku) {
-                f12_sync_log(sprintf('[AuthorSync] Term found via fast-path wp_id: %d', $wp_id));
-                return $term;
-            }
-        }
-        
-        // 2. Primary lookup: Find by SKU meta key.
-        $terms = get_terms([
-            'taxonomy'   => $this->taxonomy,
-            'hide_empty' => false,
-            'number'     => 1,
-            'meta_query' => [['key' => $this->sku_meta_key, 'value' => $sku]],
-        ]);
-        if (!empty($terms) && !is_wp_error($terms)) {
-            f12_sync_log(sprintf('[AuthorSync] Term found via SKU meta: %s', $sku));
-            return $terms[0];
-        }
-        
-        // 3. Fallback: Find by slug (for claiming manually created terms).
-        $slug_to_check = isset($payload['slug']) ? $payload['slug'] : (isset($payload['name']) ? $payload['name'] : '');
-        if (!empty($slug_to_check)) {
-            $slug = sanitize_title($slug_to_check);
-            $term = get_term_by('slug', $slug, $this->taxonomy);
-            if ($term && !is_wp_error($term)) {
-                $existing_sku = get_term_meta($term->term_id, $this->sku_meta_key, true);
-                if (empty($existing_sku)) {
-                    f12_sync_log(sprintf('[AuthorSync] Term found via SLUG FALLBACK: %s. Claiming it for SKU %s.', $slug, $sku));
-                    return $term;
-                }
-            }
-        }
-        
-        return null; // Term not found
-    }
-
-    /**
-     * Safely processes meta fields based on the whitelist.
-     *
-     * @param int $term_id The ID of the term to update.
-     * @param string $sku The SKU of the term, for special handling.
-     * @param array $payload The incoming fields payload.
-     * @param array &$ignored_keys_for_response A reference to an array to store warnings.
-     */
-    private function process_meta_fields($term_id, $sku, $payload, &$ignored_keys_for_response = []) {
-        // Always ensure the SKU meta is set correctly.
-        update_term_meta($term_id, $this->sku_meta_key, $sku);
-        
-        // These keys were handled as core properties and should not be processed as meta.
-        $handled_core_keys = ['name', 'slug', 'as_description'];
-        
-        foreach ($payload as $meta_key => $meta_value) {
-            // Skip keys that are core properties or the SKU itself.
-            if (in_array($meta_key, $handled_core_keys, true) || $meta_key === $this->sku_meta_key) {
-                continue;
-            }
-
-            $meta_key_sanitized = sanitize_key($meta_key);
-
-            // --- THE WHITELIST GATE ---
-            if (!in_array($meta_key_sanitized, $this->allowed_meta_keys, true)) {
-                f12_sync_log(sprintf('[AuthorSync] Ignored unknown meta key "%s" for term ID %d. Not in allowed list.', $meta_key_sanitized, $term_id));
-                $ignored_keys_for_response[] = $meta_key_sanitized;
-                continue; // Skip rogue key
-            }
-
-            // --- SAFE META HANDLING (for whitelisted keys only) ---
-            if ($meta_value === null) {
-                // Explicitly delete meta if the payload sends null.
-                delete_term_meta($term_id, $meta_key_sanitized);
-                f12_sync_log(sprintf('[AuthorSync] Deleted meta key "%s" for term ID %d due to null value.', $meta_key_sanitized, $term_id));
-            } else {
-                // Update meta for any other value.
-                update_term_meta($term_id, $meta_key_sanitized, $meta_value);
-            }
-        }
-    }
-}
-</file>
-
-<file path="modules/leaders-sync.php">
-<?php
-/**
- * Quick Sync Module: Leaders CPT (f12-leaders)
- *
- * Provides the specific configuration for syncing the 'f12-leaders' Custom Post Type.
- * This module includes special handling to parse a Markdown description into HTML.
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-class F12_Leader_Sync_Module extends F12_Quick_Sync_Module_Base {
-
-    /**
-     * Set up all configuration for the 'f12-leaders' CPT.
-     */
-    protected function init() {
-        // --- 1. Core Configuration ---
-        $this->cpt = 'f12-leaders';
-        $this->endpoint_slug = 'leader-sync';
-        $this->sku_meta_key = 'leader_sku';
-
-        // --- 2. Field Mapping (Payload Key => WP Destination) ---
-        $this->core_field_map = [
-            'post_title'   => 'post_title',
-            'post_excerpt' => 'post_excerpt', // Airtable 'leader_description' is mapped here.
-        ];
-
-        $this->taxonomy_map = [
-            'leadership-role' => 'leadership-role',
-        ];
-
-        $this->image_meta_map = [
-            '_thumbnail_id',
-        ];
-
-        $this->post_content_key = null;
-    }
-
-    /**
-     * Override the special meta processing hook to handle Markdown conversion.
-     */
-    protected function _process_special_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
-        // Check if the 'leader_description' field exists in the payload.
-        if ( array_key_exists( 'leader_description', $payload ) ) {
-            
-            $raw_markdown = $payload['leader_description'];
-            $html_output = '';
-
-            // Ensure Parsedown is available and the value is a non-empty string.
-            if ( class_exists('Parsedown') && is_string($raw_markdown) && !empty($raw_markdown) ) {
-                // Convert Markdown to safe HTML.
-                $html_output = wp_kses_post( Parsedown::instance()->setSafeMode(true)->text($raw_markdown) );
-                f12_sync_log(sprintf('[LeaderSync] Parsed Markdown for leader_description on post ID %d.', $post_id));
-            } else {
-                // If it's not a string or Parsedown is missing, just sanitize it.
-                $html_output = is_string($raw_markdown) ? wp_kses_post($raw_markdown) : '';
-            }
-
-            // Update the meta field with the processed HTML.
-            update_post_meta($post_id, 'leader_description', $html_output);
-
-            // IMPORTANT: Unset the key from the payload so the base class
-            // doesn't process it a second time as a generic meta field.
-            unset($payload['leader_description']);
-
-            // Log the change for the response summary.
-            if ( ! in_array( 'leader_description (Markdown parsed)', $changed_summary['special'] ) ) {
-                $changed_summary['special'][] = 'leader_description (Markdown parsed)';
-            }
-        }
-    }
-}
-</file>
-
-<file path="modules/series-sync.php">
-<?php
-/**
- * Quick Sync Module: Series CPT
- *
- * Provides the specific configuration for syncing the 'series' Custom Post Type.
- * It inherits all universal processing logic (Timezone, AIOSEO, etc.)
- * from the F12_Quick_Sync_Module_Base class.
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
-
-    /**
-     * Set up all configuration for the 'series' CPT.
-     */
-    protected function init() {
-        // --- Core Configuration ---
-        $this->cpt = 'series';
-        $this->endpoint_slug = 'series-sync';
-        $this->sku_meta_key = 'sku';
-
-        // --- Field Mapping ---
-        $this->core_field_map = [
-            'post_title'   => 'post_title',
-            'post_name'    => 'post_name',
-            'post_excerpt' => 'post_excerpt',
-            'post_date'    => 'post_date',
-            'post_status'  => 'post_status',
-        ];
-
-        $this->taxonomy_map = [
-            'global-categories' => 'global-categories',
-            'series-categories' => 'series-categories',
-            'topics'            => 'topics',
-            'series-templates'  => 'series-templates',
-        ];
-
-        $this->image_meta_map = [
-            '_thumbnail_id',
-            'listing-image',
-            'no-words-image',
-            'banner-image',
-            'manual1-image',
-        ];
-
-        $this->post_content_key = 'series-description';
-        $this->duplicate_post_content_to_meta = true;
-    }
-
-    // No other methods are needed here. The timezone and AIOSEO logic
-    // are now handled automatically by the base class.
-}
-</file>
-
-<file path="modules/sessions-sync.php">
-<?php
-/**
- * Quick Sync Module: Sessions CPT
- *
- * Provides the specific configuration for syncing the 'sessions' Custom Post Type.
- * It inherits all universal processing logic (Timezone, AIOSEO, etc.)
- * from the F12_Quick_Sync_Module_Base class.
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
-
-    /**
-     * Set up all configuration for the 'sessions' CPT.
-     */
-    protected function init() {
-        // --- Core Configuration ---
-        $this->cpt = 'resources';
-        $this->endpoint_slug = 'sessions-sync';
-        $this->sku_meta_key = 'sku';
-
-        // --- Field Mapping ---
-        $this->core_field_map = [
-            'post_title'   => 'post_title',
-            'post_name'    => 'post_name',
-            'post_excerpt' => 'post_excerpt',
-            'post_date'    => 'post_date',
-            'post_status'  => 'post_status',
-        ];
-
-        $this->taxonomy_map = [
-            'global-categories' => 'global-categories',
-            'series-categories' => 'series-categories',
-            'topics'            => 'topics',
-            'series-templates'  => 'series-templates',
-        ];
-
-        $this->image_meta_map = [
-            '_thumbnail_id',
-            'listing-image',
-            'no-words-image',
-            'banner-image',
-            'manual1-image',
-        ];
-
-        // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
-        $this->jet_engine_relation_map = [
-            'jet_relation_series_parent' => [
-                'relation_id'      => 63,
-                'parent_cpt'       => 'series',
-                'parent_sku_meta'  => 'sku',
-                // no 'mode' key — helper is hard-coded to replace
-            ],
-        ];
-
-    }
-
-}
-</file>
-
-<file path="core-helpers.php">
-<?php
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-/**
- * Centralized permission check for all sync endpoints.
- * Relies on WordPress Application Passwords.
- */
-function f12_quick_sync_permission_check( WP_REST_Request $request ) {
-    if ( ! current_user_can( 'edit_posts' ) ) {
-        return new WP_Error(
-            'rest_forbidden',
-            __( 'You do not have permission to perform this action.', 'f12-quick-sync' ),
-            [ 'status' => 403 ]
-        );
-    }
-    return true;
-}
-
-/**
- * Logs messages to the PHP error log if WP_DEBUG and WP_DEBUG_LOG are enabled.
- */
-function f12_sync_log( $message ) {
-    if ( defined( 'WP_DEBUG' ) && WP_DEBUG === true && defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG === true ) {
-        $prefix = '[Four12 Quick Sync] ';
-        if ( is_array( $message ) || is_object( $message ) ) {
-            error_log( $prefix . print_r( $message, true ) );
-        } else {
-            error_log( $prefix . $message );
-        }
-    }
-}
-
-/**
- * Retrieves a single post object by its SKU meta field.
- *
- * @param string $sku The SKU to search for.
- * @param string $cpt The post type to search within.
- * @param string $sku_meta_key The meta key for the SKU.
- * @return WP_Post|null The found WP_Post object or null if not found.
- */
-function f12_get_post_by_sku( $sku, $cpt, $sku_meta_key ) {
-    if ( empty( $sku ) || empty($cpt) || empty($sku_meta_key) ) {
-        return null;
-    }
-    $query_args = [
-        'post_type'      => $cpt,
-        'post_status'    => 'any',
-        'posts_per_page' => 1,
-        'meta_query'     => [
-            [
-                'key'   => $sku_meta_key,
-                'value' => $sku,
-            ],
-        ],
-        'fields'         => '', // Return full post objects
-    ];
-    $posts = get_posts( $query_args );
-
-    if ( ! empty( $posts ) ) {
-        if ( count( $posts ) > 1 ) {
-            f12_sync_log( sprintf( 'Warning: Duplicate SKU "%s" detected in CPT "%s". Found %d posts. Returning the first one (ID: %d).', esc_html( $sku ), $cpt, count( $posts ), $posts[0]->ID ) );
-        }
-        return $posts[0];
-    }
-    return null;
-}
-
-/**
- * Sideloads an image from a URL into the WordPress Media Library.
- *
- * @param string $image_url The URL of the image to sideload.
- * @param int    $post_id   The ID of the post to attach the image to (0 for unattached).
- * @param string $desc      Description for the image media item (optional).
- * @return int|WP_Error Attachment ID on success, WP_Error on failure.
- */
-function f12_sideload_image_from_url( $image_url, $post_id = 0, $desc = null ) {
-    if ( empty( $image_url ) || ! filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
-        return new WP_Error( 'invalid_image_url', __( 'Invalid image URL provided for sideloading.', 'f12-quick-sync' ), $image_url );
-    }
-
-    if ( ! function_exists( 'media_handle_sideload' ) ) {
-        require_once ABSPATH . 'wp-admin/includes/media.php';
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/image.php';
-    }
-
-    $tmp = download_url( $image_url );
-    if ( is_wp_error( $tmp ) ) {
-        @unlink( $tmp );
-        return new WP_Error( 'image_download_failed', sprintf( __( 'Could not download image from URL: %s. Error: %s', 'f12-quick-sync' ), esc_url($image_url), $tmp->get_error_message() ), $tmp->get_error_data() );
-    }
-
-    $file_array = [
-        'name'     => basename( strtok( $image_url, '?' ) ),
-        'tmp_name' => $tmp,
-    ];
-
-    if ( is_wp_error( $file_array['tmp_name'] ) ) {
-        @unlink( $file_array['tmp_name'] );
-        return new WP_Error( 'image_temp_store_failed', __( 'Could not store temporary image file after download.', 'f12-quick-sync' ), $file_array['tmp_name'] );
-    }
-
-    $attachment_id = media_handle_sideload( $file_array, $post_id, $desc );
-    
-    @unlink( $file_array['tmp_name'] );
-
-    if ( is_wp_error( $attachment_id ) ) {
-        return new WP_Error( 'image_sideload_failed', sprintf( __( 'Could not sideload image. Error: %s', 'f12-quick-sync' ), $attachment_id->get_error_message() ), $attachment_id->get_error_data() );
-    }
-
-    return (int) $attachment_id;
-}
-
-/**
- * Returns "now" as DateTime in the site’s timezone.
- */
-function f12qs_now(): DateTime {
-    return new DateTime( 'now', wp_timezone() ); // site tz
-}
-
-/** Local “MySQL” string – what WP expects for post_date */
-function f12qs_mysql_local( DateTime $dt ): string {
-    return $dt->format( 'Y-m-d H:i:s' );
-}
-
-/** UTC “MySQL” string – what WP expects for post_date_gmt */
-function f12qs_mysql_gmt( DateTime $dt ): string {
-    $utc = clone $dt;
-    $utc->setTimezone( new DateTimeZone( 'UTC' ) );
-    return $utc->format( 'Y-m-d H:i:s' );
-}
-
-/** Pure UTC Unix timestamp – what JetEngine wants when “Save as timestamp” */
-function f12qs_unix_utc( DateTime $dt ): int {
-    $utc = clone $dt;
-    $utc->setTimezone( new DateTimeZone( 'UTC' ) );
-    return $utc->getTimestamp();
-}
-</file>
-
-<file path="f12-quick-sync.php">
-<?php
-/**
- * Plugin Name:       Four12 - Quick Sync Framework
- * Plugin URI:        https://four12global.com
- * Description:       A modular framework for syncing data from Airtable to WordPress CPTs and Taxonomies.
- * Version:           2.0.0
- * Author:            Four12 Global
- * Author URI:        https://four12global.com
-
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-define( 'F12_QUICK_SYNC_PATH', plugin_dir_path( __FILE__ ) );
-define( 'F12_QUICK_SYNC_URL', plugin_dir_url( __FILE__ ) );
-
-
-/**
- * Main plugin class to coordinate all modules.
- */
-final class F12_Quick_Sync_Manager {
-
-    private static $instance;
-    private $modules = [];
-
-    /**
-     * Singleton instance.
-     */
-    public static function get_instance() {
-        if ( null === self::$instance ) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-
-    /**
-     * Constructor.
-     */
-    private function __construct() {
-        $this->load_dependencies();
-        $this->instantiate_modules();
-        add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
-    }
-
-    /**
-     * Load all required files.
-     */
-    private function load_dependencies() {
-        require_once F12_QUICK_SYNC_PATH . 'core-helpers.php';
-        require_once F12_QUICK_SYNC_PATH . 'module-base.php';
-        
-        // Load JetEngine helpers (safe even if JetEngine is disabled).
-        require_once F12_QUICK_SYNC_PATH . 'relations.php';
-        
-        // Load Parsedown library if it exists
-        if ( file_exists( F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php' ) ) {
-            require_once F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php';
-        }
-
-        // Autoload all modules from the /modules/ directory
-        foreach ( glob( F12_QUICK_SYNC_PATH . 'modules/*.php' ) as $module_file ) {
-            require_once $module_file;
-        }
-    }
-
-    /**
-     * Find and instantiate all declared module classes.
-     */
-    private function instantiate_modules() {
-        $declared_classes = get_declared_classes();
-        foreach ( $declared_classes as $class_name ) {
-            if ( substr($class_name, -12) === '_Sync_Module' && class_exists($class_name) ) {
-                $this->modules[ $class_name ] = new $class_name();
-            }
-        }
-    }
-
-    /**
-     * Register REST API routes for each loaded module.
-     */
-    public function register_rest_routes() {
-        foreach ( $this->modules as $module ) {
-            if ( ! method_exists($module, 'get_endpoint_slug') || ! method_exists($module, 'handle_sync_request') ) {
-                continue;
-            }
-
-            register_rest_route(
-                'four12/v1',
-                '/' . $module->get_endpoint_slug(),
-                [
-                    'methods'             => WP_REST_Server::CREATABLE, // 'POST'
-                    'callback'            => [ $module, 'handle_sync_request' ],
-                    'permission_callback' => 'f12_quick_sync_permission_check',
-                    'args'                => $module->get_rest_api_args(),
-                ]
-            );
-             f12_sync_log( 'Registered endpoint: /four12/v1/' . $module->get_endpoint_slug() );
-        }
-    }
-}
-
-// Initialize the plugin manager.
-F12_Quick_Sync_Manager::get_instance();
-</file>
-
-<file path="module-base.php">
-<?php
-use AIOSEO\Plugin\Common\Models\Post as AioseoPost;
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-abstract class F12_Quick_Sync_Module_Base {
-
-    // --- Configuration to be set by child modules ---
-    protected $cpt;
-    protected $endpoint_slug;
-    protected $sku_meta_key;
-    protected $core_field_map = [];
-    protected $taxonomy_map = [];
-    protected $image_meta_map = [];
-    protected $post_content_key;
-    protected $allowed_post_statuses = ['publish', 'draft', 'trash', 'private'];
-    protected bool $duplicate_post_content_to_meta = false;
-    
-    /** @var array  Key = payload field, value = relation config */
-    protected $jet_engine_relation_map = [];
-
-    /**
-     * Constructor to set up module-specific hooks.
-     */
-    public function __construct() {
-        // Make JetEngine honour the site timezone for every datetime meta.
-        add_filter( 'jet-engine/datetime/use-wp-date', '__return_true', 10, 2 );
-        $this->init();
-    }
-
-    /**
-     * Abstract init method for child classes to set properties and add hooks.
-     */
-    abstract protected function init();
-
-    /**
-     * Get the endpoint slug for the router.
-     * @return string
-     */
-    public function get_endpoint_slug() {
-        return $this->endpoint_slug;
-    }
-
-    /**
-     * Define the expected REST API arguments.
-     * @return array
-     */
-    public function get_rest_api_args() {
-        return [
-            'sku' => [
-                'type'              => 'string',
-                'required'          => true,
-                'sanitize_callback' => 'sanitize_text_field',
-                'description'       => esc_html__( 'Unique identifier for the item. Used for de-duplication.', 'f12-quick-sync' ),
-            ],
-            'fields' => [
-                'type'              => 'object',
-                'required'          => true,
-                'description'       => esc_html__( 'Object containing item data fields to be synced.', 'f12-quick-sync' ),
-            ],
-            'airtableRecordId' => [
-                'type'              => 'string',
-                'required'          => false,
-                'sanitize_callback' => 'sanitize_text_field',
-                'description'       => esc_html__( 'Optional Airtable Record ID for logging and reference.', 'f12-quick-sync' ),
-            ],
-            'wp_id' => [
-                'type'              => 'integer',
-                'required'          => false,
-                'sanitize_callback' => 'absint',
-                'description'       => esc_html__( 'Optional WordPress Post/Term ID. If provided, used for a fast-path update.', 'f12-quick-sync' ),
-            ],
-        ];
-    }
-
-    /**
-     * The main handler for the REST request.
-     * This is the refactored logic from the original plugin.
-     */
-    public function handle_sync_request( WP_REST_Request $request ) {
-        $json_params = $request->get_json_params();
-    
-        if ( null === $json_params ) {
-            return new WP_Error( 'f12_bad_json', __( 'Invalid JSON body or Content-Type not application/json.', 'f12-quick-sync' ), [ 'status' => 400 ] );
-        }
-    
-        $sku                 = isset( $json_params['sku'] ) ? sanitize_text_field( $json_params['sku'] ) : null;
-        $fields_from_payload = isset( $json_params['fields'] ) ? $json_params['fields'] : null;
-        $wp_id               = isset( $json_params['wp_id'] ) ? absint( $json_params['wp_id'] ) : 0;
-        
-        if ( empty( $sku ) ) {
-            return new WP_Error( 'f12_missing_sku', __( 'Required top-level "sku" parameter is missing from JSON body.', 'f12-quick-sync' ), [ 'status' => 400 ] );
-        }
-        if ( empty( $fields_from_payload ) || ! is_array( $fields_from_payload ) ) {
-            return new WP_Error( 'f12_invalid_fields', __( 'Required "fields" parameter is missing or not an object in JSON body.', 'f12-quick-sync' ), [ 'status' => 400 ] );
-        }
-        
-        $payload = $fields_from_payload; // No more apply_filters here
-        $changed_summary = [ 'core' => [], 'meta' => [], 'taxonomy' => [], 'permalink' => [], 'special' => [] ];
-    
-        
-        // Leave last_synced untouched; JetEngine will translate this UTC timestamp to local time when displaying.
-
-        // ---- Find existing post ----
-        $post = null;
-        $mode = null;
-    
-        if ( $wp_id > 0 ) {
-            $potential_post = get_post( $wp_id );
-            if ( $potential_post && $potential_post->post_type === $this->cpt ) {
-                $existing_sku = get_post_meta( $potential_post->ID, $this->sku_meta_key, true );
-                // This is the key change: Allow a match if the existing SKU is empty (so we can claim it) or if the SKUs match.
-                if ( empty($existing_sku) || $existing_sku === $sku ) {
-                    $post = $potential_post;
-                    $mode = 'update';
-                    if (empty($existing_sku)) {
-                        f12_sync_log( sprintf( 'Post found via wp_id %d and CLAIMED for SKU %s (was previously empty).', $post->ID, esc_html( $sku ) ) );
-                    } else {
-                        f12_sync_log( sprintf( 'Post found via fast-path wp_id: %d for CPT %s (SKU: %s)', $post->ID, $this->cpt, esc_html( $sku ) ) );
-                    }
-                } else {
-                     f12_sync_log( sprintf( 'wp_id %d provided, but its SKU ("%s") does not match payload SKU ("%s"). Falling back to SKU lookup.', $wp_id, esc_html($existing_sku), esc_html( $sku ) ) );
-                }
-            } else {
-                f12_sync_log( sprintf( 'wp_id %d provided, but post not found or is wrong CPT. Falling back to SKU lookup.', $wp_id ) );
-            }
-        }
-    
-        if ( ! $mode ) {
-            $post = f12_get_post_by_sku( $sku, $this->cpt, $this->sku_meta_key );
-            $mode = $post ? 'update' : 'create';
-        }
-    
-        $post_id = ( 'update' === $mode && $post ) ? $post->ID : 0;
-        
-        // ---- Process and Save ----
-        $post_data = $this->_prepare_core_data( $payload, $sku, $changed_summary );
-        
-        $post_id_after_save = $this->_save_core_post( $post_id, $mode, $post_data, $sku );
-    
-        if ( is_wp_error( $post_id_after_save ) ) {
-            f12_sync_log( 'Error saving post (core fields) for SKU: ' . esc_html( $sku ) . '. Mode: ' . $mode . '. Error: ' . $post_id_after_save->get_error_message() );
-            return $post_id_after_save;
-        }
-        $post_id = (int) $post_id_after_save;
-    
-        // Process remaining fields
-        $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
-        $this->_process_taxonomies( $post_id, $payload, $sku, $changed_summary );
-        $this->_process_special_fields( $post_id, $payload, $sku, $changed_summary ); // This now handles AIOSEO universally
-        $this->_process_jet_engine_relations( $post_id, $payload, $sku, $changed_summary );
-        $this->_process_meta_fields( $post_id, $payload, $sku, $changed_summary );
-    
-        // ---- Prepare and return response ----
-        $action = ( 'create' === $mode ) ? 'created' : 'updated';
-        // Retrieve the post title for the response
-        $post_obj = get_post( $post_id );
-        $post_title = $post_obj ? $post_obj->post_title : '';
-        $response_data = [
-            'post_id'    => $post_id,
-            'action'     => $action,
-            'sku'        => $sku,
-            'post_title' => $post_title,
-            'message'    => sprintf(
-                "%s '%s' successfully %s.",
-                ucfirst( $this->cpt ),        // “Series”
-                esc_html( $post_title ),      // “Regional Equip Gauteng”
-                $action                       // “updated” (or “created” etc)
-            ),
-        ];
-    
-        return rest_ensure_response( $response_data );
-    }
-
-
-    /**
-     * Prepares the $post_data array for wp_insert/update_post.
-     */
-    protected function _prepare_core_data( &$payload, $sku, &$changed_summary ) {
-        $post_data = [ 'post_type' => $this->cpt ];
-        $post_data['post_status'] = 'publish'; // Default
-
-        // Standard core fields
-        foreach ( $this->core_field_map as $payload_key => $wp_post_field_key ) {
-            if ( array_key_exists( $payload_key, $payload ) ) {
-
-                // Short-circuit the native slug update if a custom permalink is being used.
-                if ( $wp_post_field_key === 'post_name' && isset($payload['custom_permalink_uri']) && !empty(trim($payload['custom_permalink_uri'])) && class_exists('Permalink_Manager_URI_Functions') ) {
-                    f12_sync_log(sprintf('Core Field Processing: Skipping direct update of native "post_name" because "custom_permalink_uri" is provided for Permalink Manager. (SKU: %s)', esc_html($sku)));
-                    if (!in_array('custom_permalink_uri', $changed_summary['permalink'])) {
-                        $changed_summary['permalink'][] = 'custom_permalink_uri'; // Log permalink change intent
-                    }
-                    unset( $payload[ $payload_key ] ); // Remove post_name from further processing
-                    continue; // Skip to the next field in the loop
-                }
-
-                $value = $payload[ $payload_key ];
-
-                if ( 'post_date' === $wp_post_field_key && ! empty( $value ) ) {
-                    // --- parse incoming string ---------------------------------------------
-                    $dt_local = new DateTime( $value );          // honours the “Z” (UTC)
-                    // 🚨 ALWAYS convert to site timezone – no conditions
-                    $dt_local->setTimezone( wp_timezone() );     // now site time
-
-                    $post_data['post_date']      = f12qs_mysql_local( $dt_local );
-                    $post_data['post_date_gmt']  = f12qs_mysql_gmt(   $dt_local );
-                } elseif ( 'post_status' === $wp_post_field_key ) {
-                    if ( !empty($value) && is_string($value) && in_array( strtolower( $value ), $this->allowed_post_statuses, true ) ) {
-                        $post_data[ $wp_post_field_key ] = strtolower( $value );
-                    }
-                } else {
-                    $post_data[ $wp_post_field_key ] = $value;
-                }
-                
-                if ( ! in_array( $payload_key, $changed_summary['core'] ) ) $changed_summary['core'][] = $payload_key;
-                unset( $payload[ $payload_key ] );
-            }
-        }
-        
-        // Post content
-        if ( $this->post_content_key && array_key_exists( $this->post_content_key, $payload ) ) {
-            $value = $payload[ $this->post_content_key ];
-            $post_data['post_content'] = $value;
-
-            if ( ! in_array( 'post_content (from ' . $this->post_content_key . ')', $changed_summary['special'] ) ) {
-                $changed_summary['special'][] = 'post_content (from ' . $this->post_content_key . ')';
-            }
-
-            // Keep or discard the key depending on module preference
-            if ( ! $this->duplicate_post_content_to_meta ) {
-                unset( $payload[ $this->post_content_key ] );
-            }
-        }
-
-        // If neither post_date nor post_date_gmt set above, default to now.
-        if ( empty( $post_data['post_date'] ) ) {
-            $now_local = f12qs_now();
-            $post_data['post_date']     = f12qs_mysql_local( $now_local );
-            $post_data['post_date_gmt'] = f12qs_mysql_gmt(   $now_local );
-        }
-
-        return $post_data;
-    }
-
-    /**
-     * Saves the core post data.
-     */
-    protected function _save_core_post( $post_id, $mode, $post_data, $sku ) {
-        if ( 'create' === $mode ) {
-            return wp_insert_post( $post_data, true );
-        } else {
-            $post_data['ID'] = $post_id;
-            return wp_update_post( $post_data, true );
-        }
-    }
-
-    /**
-     * Handles custom permalink integration.
-     */
-    protected function _process_permalink( $post_id, &$payload, $sku, &$changed_summary ) {
-        if ( ! class_exists('Permalink_Manager_URI_Functions') || ! isset($payload['custom_permalink_uri']) ) {
-            return;
-        }
-
-        $custom_uri = trim($payload['custom_permalink_uri']);
-        if ( !empty($custom_uri) ) {
-            $new_uri = ltrim($custom_uri, '/');
-            if (substr($new_uri, -1) !== '/') $new_uri .= '/';
-
-            if ($new_uri !== '/') {
-                $save_result = Permalink_Manager_URI_Functions::save_single_uri($post_id, $new_uri, false, true);
-                if ($save_result === true || $save_result === 1) {
-                    f12_sync_log(sprintf('Permalink Manager: Success for post ID %d, URI "%s" (SKU: %s)', $post_id, esc_html($new_uri), esc_html($sku)));
-                    if (!in_array('custom_permalink_uri', $changed_summary['permalink'])) $changed_summary['permalink'][] = 'custom_permalink_uri';
-                }
-            }
-        }
-        unset($payload['custom_permalink_uri']);
-
-        // Prevent native post_name from being processed if a custom permalink was handled.
-        if (isset($this->core_field_map['post_name'])) {
-            unset($payload['post_name']);
-        }
-    }
-
-    /**
-     * Handles all taxonomy assignments.
-     */
-    protected function _process_taxonomies( $post_id, &$payload, $sku, &$changed_summary ) {
-        foreach ( $this->taxonomy_map as $payload_key => $taxonomy_slug ) {
-            if ( ! array_key_exists( $payload_key, $payload ) ) continue;
-
-            $raw_term_values = $payload[ $payload_key ];
-            
-            if ( $raw_term_values === null || $raw_term_values === '' ) {
-                wp_set_post_terms( $post_id, [], $taxonomy_slug, false );
-                if ( ! in_array( $payload_key, $changed_summary['taxonomy'] ) ) $changed_summary['taxonomy'][] = $payload_key;
-                unset( $payload[ $payload_key ] );
-                continue;
-            }
-
-            // ... [Identical hierarchy logic from original file] ...
-            $term_input_sets = [];
-            $temp_term_list = is_array($raw_term_values) ? array_map('strval', $raw_term_values) : array_map('trim', explode(',', $raw_term_values));
-
-            foreach( $temp_term_list as $term_entry_str ) {
-                $term_entry_str = trim($term_entry_str);
-                if (empty($term_entry_str)) continue;
-                if (strpos($term_entry_str, '>') !== false) {
-                    $term_input_sets[] = array_map('trim', explode('>', $term_entry_str));
-                } else {
-                    $term_input_sets[] = [$term_entry_str];
-                }
-            }
-
-            $term_ids_to_set = [];
-            if ( ! empty( $term_input_sets ) ) {
-                foreach ($term_input_sets as $hierarchical_term_parts) {
-                    $parent_id = 0;
-                    foreach ($hierarchical_term_parts as $term_part_name) {
-                        $term = term_exists( $term_part_name, $taxonomy_slug, $parent_id );
-                        if ( ! $term ) $term = term_exists( sanitize_title( $term_part_name ), $taxonomy_slug, $parent_id );
-                        
-                        $term_id = 0;
-                        if ( ! $term ) {
-                            $insert_args = ($parent_id > 0 && is_taxonomy_hierarchical($taxonomy_slug)) ? ['parent' => $parent_id] : [];
-                            $new_term = wp_insert_term( $term_part_name, $taxonomy_slug, $insert_args );
-                            if ( is_wp_error( $new_term ) ) {
-                                f12_sync_log( 'Could not create term "' . $term_part_name . '": ' . $new_term->get_error_message() );
-                                break; 
-                            }
-                            $term_id = (int) $new_term['term_id'];
-                        } else {
-                            $term_id = (int) $term['term_id'];
-                        }
-                        
-                        if ($term_id > 0) {
-                            $term_ids_to_set[] = $term_id;
-                            $parent_id = $term_id;
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            $term_ids_to_set = array_unique(array_filter($term_ids_to_set));
-            $term_result = wp_set_post_terms( $post_id, $term_ids_to_set, $taxonomy_slug, false );
-
-            if (!is_wp_error($term_result)) {
-                 if ( ! in_array( $payload_key, $changed_summary['taxonomy'] ) ) $changed_summary['taxonomy'][] = $payload_key;
-            }
-            unset( $payload[ $payload_key ] );
-        }
-    }
-    
-    /**
-     * Processes special, universally handled fields like AIOSEO.
-     */
-    protected function _process_special_fields( $post_id, &$payload, $sku, &$changed_summary ) {
-        // --- AIOSEO Description Handling (Universal) ---
-        // Automatically process if the conventional payload key exists.
-        if ( isset( $payload['_aioseo_description'] ) ) {
-            
-            $raw_desc = sanitize_textarea_field( $payload['_aioseo_description'] );
-            
-            if ( function_exists( 'aioseo' ) && class_exists( AioseoPost::class ) ) {
-                try {
-                    $seoPost = AioseoPost::getPost( (int) $post_id ) ?: AioseoPost::create( [ 'post_id' => (int) $post_id ] );
-                    $seoPost->description = $raw_desc;
-                    method_exists( $seoPost, 'save' ) ? $seoPost->save() : $seoPost->savePost();
-                    f12_sync_log( "AIOSEO: description saved via model for post {$post_id}" );
-                } catch ( Throwable $e ) {
-                    f12_sync_log( 'AIOSEO ERROR: ' . $e->getMessage() . ' - falling back to update_post_meta' );
-                    update_post_meta( $post_id, '_aioseo_description', $raw_desc );
-                }
-            } else {
-                // Fallback if AIOSEO is not active
-                update_post_meta( $post_id, '_aioseo_description', $raw_desc );
-            }
-
-            if ( ! in_array( '_aioseo_description (AIOSEO)', $changed_summary['special'] ) ) {
-                $changed_summary['special'][] = '_aioseo_description (AIOSEO)';
-            }
-            // Unset the key so it's not processed again in the generic meta loop.
-            unset( $payload['_aioseo_description'] );
-        }
-    }
-
-    /**
-     * Hook for child modules to perform special meta field processing.
-     * This method is called before the generic meta loop.
-     * Child classes should unset any keys they handle to prevent double processing.
-     */
-    protected function _process_special_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
-        // Child modules can override this.
-    }
-
-    /**
-     * Handles all remaining fields as post meta, including image sideloading.
-     */
-    protected function _process_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
-        // Always ensure SKU meta is correct
-        if ( get_post_meta( $post_id, $this->sku_meta_key, true ) !== $sku ) {
-            update_post_meta( $post_id, $this->sku_meta_key, $sku );
-        }
-        unset($payload[$this->sku_meta_key]);
-
-        // --- Call the hook for special handling ---
-        $this->_process_special_meta_fields( $post_id, $payload, $sku, $changed_summary );
-        // ---------------------------------------------
-
-        foreach ( $payload as $meta_key => $meta_value ) {
-            $meta_key_sanitized = sanitize_key( $meta_key );
-            $processed_meta_value = $meta_value;
-
-            // JetEngine last_synced field: always use UTC timestamp
-            if ($meta_key_sanitized === 'last_synced') {
-                if ($meta_value instanceof DateTime) {
-                    $processed_meta_value = f12qs_unix_utc($meta_value);
-                } elseif (is_numeric($meta_value)) {
-                    // Assume already a timestamp, but cast to int
-                    $processed_meta_value = (int)$meta_value;
-                } elseif (is_string($meta_value)) {
-                    // Try to parse as date string
-                    $dt = new DateTime($meta_value, wp_timezone());
-                    $processed_meta_value = f12qs_unix_utc($dt);
-                }
-            }
-
-            // Image handling
-            if ( in_array( $meta_key, $this->image_meta_map, true ) ) {
-                if ( is_string( $meta_value ) && filter_var( $meta_value, FILTER_VALIDATE_URL ) ) {
-                    $image_desc = get_the_title( $post_id ) ?: $sku;
-                    $attachment_id = f12_sideload_image_from_url( $meta_value, $post_id, $image_desc );
-                    if ( ! is_wp_error( $attachment_id ) && $attachment_id > 0 ) {
-                        $processed_meta_value = $attachment_id;
-                        f12_sync_log(sprintf('Image Sideload Success for "%s". New ID: %d (SKU: %s)', $meta_key, $attachment_id, esc_html($sku)));
-                    } else {
-                        f12_sync_log(sprintf('Image Sideload Failed for "%s". Error: %s (SKU: %s)', $meta_key, is_wp_error($attachment_id) ? $attachment_id->get_error_message() : 'Unknown', esc_html($sku)));
-                        continue; // Skip updating meta on failure
-                    }
-                }
-            }
-
-            // Featured Image special handling
-            if ($meta_key_sanitized === '_thumbnail_id') {
-                if ( !empty($processed_meta_value) && (int) $processed_meta_value > 0 ) {
-                    set_post_thumbnail( $post_id, (int) $processed_meta_value );
-                } else {
-                    delete_post_thumbnail($post_id);
-                }
-            } else { // All other meta
-                if ( $meta_value === null ) {
-                    delete_post_meta($post_id, $meta_key_sanitized);
-                } else {
-                    update_post_meta( $post_id, $meta_key_sanitized, $processed_meta_value );
-                }
-            }
-             if ( ! in_array( $meta_key, $changed_summary['meta'] ) ) $changed_summary['meta'][] = $meta_key;
-        }
-    }
-
-    /**
-     * Sync JetEngine relationships declared in $this->jet_engine_relation_map.
-     */
-    protected function _process_jet_engine_relations( int $child_id, array &$payload, $sku, array &$changed_summary ) {
-
-        if ( empty( $this->jet_engine_relation_map ) || ! function_exists( 'f12_set_jet_relation' ) ) {
-            return;
-        }
-
-        foreach ( $this->jet_engine_relation_map as $payload_key => $cfg ) {
-
-            if ( ! isset( $payload[ $payload_key ] ) ) {
-                continue;
-            }
-
-            $raw      = $payload[ $payload_key ];
-            $sku_list = is_array( $raw ) ? $raw : array_map( 'trim', explode( ',', (string) $raw ) );
-            $parent_ids = [];
-
-            foreach ( array_filter( $sku_list ) as $sku ) {
-                $parent_post = f12_get_post_by_sku( $sku, $cfg['parent_cpt'], $cfg['parent_sku_meta'] );
-                if ( $parent_post ) {
-                    $parent_ids[] = $parent_post->ID;
-                } else {
-                    f12_sync_log( "[JetEngine] Parent SKU '{$sku}' not found for CPT '{$cfg['parent_cpt']}'." );
-                }
-            }
-
-            $result = f12_set_jet_relation(
-                $cfg['relation_id'],
-                $child_id,     // the Session post
-                $parent_ids    // array of Series parents
-            );
-
-            if ( is_wp_error( $result ) ) {
-                f12_sync_log( $result->get_error_message() );
-                // Optional: halt the entire sync if parent is mandatory
-                // return $result;
-            } else {
-                $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
-            }
-
-            unset( $payload[ $payload_key ] );           // prevent duplicate handling
-        }
-    }
-}
-</file>
-
-<file path="README.md">
-Four12 Quick Sync Framework
-
-Version: 2.1.0
-Author: Four12 Global
-Description: A modular, configuration-driven framework for syncing data from Airtable to WordPress Custom Post Types (CPTs) and Taxonomies via a secure REST API.
-
-This plugin provides a robust foundation for creating multiple "sync" endpoints, each tailored to a specific post type or taxonomy, without duplicating core logic. It's designed for stability, scalability, and rapid development of new data pipelines.
-
-----
-
-f12-quick-sync/
-│
-├─ f12-quick-sync.php        ← Main bootstrap & router (≈150 lines)
-├─ core-helpers.php         ← Re-usable functions (≈200 lines total)
-├─ module-base.php           ← Abstract class every module extends (≈120 lines)
-└─ modules/
-     ├─ series.php           ← One class, mapping lives here
-     └─ author.php           ← Ditto (add more modules as you grow)
-vendor/
-    └─ parsedown/Parsedown.php   ← Left untouched
-
-----
-
-Table of Contents
-
-Core Philosophy
-
-How It Works: The End-to-End Flow
-
-File Structure
-
-Key Features & Universal Logic
-
-Payload Anatomy
-
-How to Add a New CPT Sync Module
-
-How to Add a New Taxonomy Sync Module
-
-Core Helpers & Shared Logic
-
-Third-Party Integrations
-
-Authentication
-
-Logging & Debugging
-
-Best Practices & Performance
-
-1. Core Philosophy
-
-Configuration over Code: Define what to sync in a module's configuration arrays, not by writing new processing logic.
-
-Don't Repeat Yourself (DRY): All shared logic (post lookup, image sideloading, universal business rules) lives in central files and is inherited or used by all modules.
-
-Modular & Isolated: Each sync endpoint is its own class in the /modules directory. A bug in one module won't break another.
-
-Idempotent & Robust: Running the same sync multiple times will not create duplicate data or cause errors. The system gracefully handles creates, updates, and retries.
-
-2. How It Works: The End-to-End Flow
-
-This plugin is the server-side component of the "Quick Sync" workflow.
-
-Generated mermaid
-flowchart TD
-    subgraph Airtable Automation
-        A[Button Click / Trigger] --> B(Airtable Media Script);
-        B -- "sends image, gets back wp_id" --> C(Airtable QuickSync Script);
-    end
-
-    C -- "POSTs JSON Payload" --> D[WordPress REST API];
-
-    subgraph WordPress (f12-quick-sync plugin)
-        D -- "/four12/v1/series-sync" --> E{Plugin Router};
-        E -- "routes to correct module" --> F[Series or Author Module];
-        F -- "processes data using..." --> G[Base Class Logic & Core Helpers];
-        G -- "creates/updates..." --> H[WP Post or Term];
-    end
-
-    H -- "sends back {post_id, action}" --> C;
-
-
-Airtable Scripts prepare a JSON payload, first syncing images to get Media IDs, then packaging the full record data.
-
-The payload is POSTed to a specific endpoint (e.g., /wp-json/four12/v1/series-sync).
-
-The Plugin Router (f12-quick-sync.php) identifies the correct module based on the endpoint slug.
-
-The Module (e.g., modules/series.php) provides the configuration.
-
-The Base Class or Module Logic executes the sync, using shared helpers for common tasks.
-
-A response is sent back to Airtable confirming the post_id or term_id and action (created or updated).
-
-3. File Structure
-Generated code
-f12-quick-sync/
-│
-├─ f12-quick-sync.php        ← Main plugin file, bootstrapper, and router.
-├─ core-helpers.php          ← Reusable, global functions (logging, sideloading).
-├─ module-base.php           ← The abstract base class with all shared CPT sync logic.
-└─ modules/
-     ├─ series.php           ← Example CPT module. **(This is what you copy for CPTs)**
-     └─ author-speaker.php   ← Example Taxonomy module. **(This is what you copy for Taxonomies)**
-└─ vendor/
-     └─ parsedown/
-          └─ Parsedown.php    ← Third-party library for Markdown parsing.
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-IGNORE_WHEN_COPYING_END
-4. Key Features & Universal Logic
-
-This framework handles complex tasks automatically for you.
-
-Features for All Modules
-
-SKU-based De-duplication: The primary sku field is used to find existing items to prevent duplicates.
-
-wp_id Fast-Path: An optional wp_id in the payload allows the system to bypass the SKU lookup for faster updates.
-
-Secure Authentication: Relies on WordPress Application Passwords for secure API access.
-
-Automatic Logic for CPT Modules (from module-base.php)
-
-Any module extending F12_Quick_Sync_Module_Base gets this for free:
-
-Timezone Normalization: Any payload containing a last_synced key will have its value automatically adjusted to GMT+2 (Johannesburg time).
-
-AIOSEO Integration: If a payload contains the _aioseo_description key, it will be automatically and safely saved using AIOSEO's models.
-
-Dynamic Taxonomy Handling: Automatically creates and assigns terms from arrays, comma-separated strings, or hierarchical strings (Parent > Child).
-
-Image Sideloading: If an image meta key (defined in the module's $image_meta_map) contains a URL, the plugin downloads it, adds it to the Media Library, and saves the attachment ID.
-
-Permalink Manager Integration: Safely handles custom_permalink_uri without conflicting with the native slug.
-
-Features for Taxonomy Modules (from author-speaker.php blueprint)
-
-Robust Term De-duplication: Uses a wp_id -> SKU -> slug lookup chain.
-
-Safe Meta Whitelisting: Prevents database pollution by only saving meta keys defined in an $allowed_meta_keys array. Unknown keys are logged and ignored.
-
-Safe Meta Deletion: Only deletes a meta field if the payload explicitly sends a null value for that key, preventing accidental data loss.
-
-Markdown Support: Easily integrates Parsedown to convert rich text fields to safe HTML.
-
-5. Payload Anatomy
-
-The plugin expects a specific JSON structure from Airtable.
-
-Generated json
-{
-  "airtableRecordId": "recXXXXXXXXXXXXXX",
-  "sku": "S0123",             // Unique identifier (required)
-  "wp_id": 1234,              // WordPress Post/Term ID (optional, for fast updates)
-  "fields": {
-    /* --- Core Fields --- */
-    "post_title": "My Series Title",      // For CPTs
-    "name": "My Author Name",             // For Taxonomies
-    "post_status": "publish",
-
-    /* --- Universal Framework Keys with Special Handling --- */
-    "last_synced": 1672531200,            // Becomes GMT+2 automatically for CPTs
-    "_aioseo_description": "My SEO desc.", // Saved via AIOSEO automatically for CPTs
-    "custom_permalink_uri": "path/to/my-series/", // Handled by Permalink Manager for CPTs
-
-    /* --- Image Fields --- */
-    "_thumbnail_id": 567,                 // WP Media ID (preferred)
-    "banner-image": "https://.../img.jpg",    // URL (fallback, will be sideloaded)
-    
-    /* --- Taxonomy Fields --- */
-    "topics": ["Topic A", "Topic B"],
-    "series-categories": "Parent > Child"
-  }
-}
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-Json
-IGNORE_WHEN_COPYING_END
-6. How to Add a New CPT Sync Module
-
-Creating a new endpoint for a CPT (e.g., "Events") is incredibly simple.
-
-Step 1: Create the Module File
-Duplicate modules/series.php and rename it to modules/events.php.
-
-Step 2: Edit the Class
-Open modules/events.php and change the class name and configuration properties.
-
-Generated php
-<?php
-// modules/events.php
-
-class F12_Events_Sync_Module extends F12_Quick_Sync_Module_Base {
-
-    protected function init() {
-        // --- 1. Core Configuration ---
-        $this->cpt = 'event';
-        $this->endpoint_slug = 'event-sync';
-        $this->sku_meta_key = 'event_sku';
-
-        // --- 2. Field Mapping ---
-        $this->core_field_map = [
-            'event_title'   => 'post_title',
-            'event_slug'    => 'post_name',
-        ];
-
-        $this->taxonomy_map = [
-            'event_category_from_airtable' => 'event-categories',
-        ];
-
-        $this->image_meta_map = [
-            '_thumbnail_id',
-            'event_banner_image',
-        ];
-
-        $this->post_content_key = 'event_description'; 
-    }
-}
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-PHP
-IGNORE_WHEN_COPYING_END
-
-Step 3: Done!
-The framework's router will automatically detect the new class and register the endpoint /wp-json/four12/v1/event-sync. It will automatically inherit the universal timezone and AIOSEO handling.
-
-7. How to Add a New Taxonomy Sync Module
-
-Creating an endpoint for a new taxonomy (e.g., "Topics") is just as easy.
-
-Step 1: Create the Module File
-Duplicate modules/author-speaker.php and rename it to modules/topics.php.
-
-Step 2: Edit the Class
-Open modules/topics.php and change the class name and configuration properties.
-
-Generated php
-<?php
-// modules/topics.php
-
-class F12_Topics_Sync_Module {
-    // --- 1. Configuration ---
-    private $endpoint_slug = 'topic-sync';
-    private $taxonomy = 'topics';
-    private $sku_meta_key = 'topic_sku';
-
-    // --- 2. Whitelist your allowed meta keys ---
-    private $allowed_meta_keys = [
-        'topic_icon_class',
-        'is_featured',
-    ];
-
-    // The rest of the file (handle_sync_request, find_existing_term, etc.)
-    // contains the logic. You may need to tweak the Parsedown logic if the
-    // topic description field has a different name.
-}
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-PHP
-IGNORE_WHEN_COPYING_END
-
-Step 3: Done!
-The router will register the new /wp-json/four12/v1/topic-sync endpoint.
-
-8. Core Helpers & Shared Logic
-
-module-base.php: The engine for CPTs. It handles the entire sync lifecycle, including the automatic universal logic.
-
-core-helpers.php: Provides standalone functions available to any module:
-
-f12_sync_log(): Conditional logging.
-
-f12_sideload_image_from_url(): Robust image sideloading.
-
-f12_get_post_by_sku(): Standardized post lookup.
-
-f12_quick_sync_permission_check(): Centralized auth check.
-
-9. Third-Party Integrations
-
-AIOSEO / Permalink Manager / JetEngine: Handled automatically by the CPT base class.
-
-Parsedown: To use Markdown in a taxonomy module, ensure Parsedown.php is in the vendor folder and call it within your module's handler, as seen in author-speaker.php.
-
-10. Authentication
-
-Authentication is handled via WordPress Application Passwords.
-
-In the WordPress admin, go to Users > Your Profile.
-
-Scroll down to "Application Passwords".
-
-Create a new password (e.g., "Airtable Sync").
-
-Copy the generated password (e.g., abcd efgh ijkl mnop qrst uvwx).
-
-In Airtable, create a Secret named API-SYNC and store your credentials in the format username:password (e.g., my_wp_admin_user:abcd efgh ijkl mnop qrst uvwx).
-
-11. Logging & Debugging
-
-Enable WP_DEBUG: To see detailed logs, set WP_DEBUG and WP_DEBUG_LOG to true in your wp-config.php.
-
-Log Location: All server-side sync activity is logged to wp-content/debug.log with the prefix [Four12 Quick Sync].
-
-What is Logged: Failures, successes, and warnings, including ignored meta keys, reasons for skipping a field, and outcomes of third-party integrations.
-
-12. Best Practices & Performance
-
-Throttle on the Airtable Side: To avoid overwhelming the server, process no more than 5-10 records per minute.
-
-Use the wp_id Fast-Path: Ensure your Airtable scripts store the post_id/term_id returned by the API and send it back on subsequent syncs.
-
-Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remember to add its key to the module's $allowed_meta_keys array.
-</file>
-
-<file path="relations.php">
-<?php
-/**
- * JetEngine relationship utilities.
- */
-
-if ( ! function_exists( 'jet_engine' ) ) {
-	// JetEngine is disabled, avoid fatal errors.
-	return;
-}
-
-if ( ! function_exists( 'f12_set_jet_relation' ) ) {
-
-	/**
-	 * Replace-sync the parents of a child post in a JetEngine relation.
-	 *
-	 * @param int   $rel_id      JetEngine relation ID.
-	 * @param int   $child_id    WP ID of the child post (Session).
-	 * @param int[] $parent_ids  Array of existing parent IDs (Series).
-	 * @return true|WP_Error
-	 */
-	function f12_set_jet_relation( int $rel_id, int $child_id, array $parent_ids ) {
-
-		// ── Guardrails ───────────────────────────────────────────
-		if ( empty( $parent_ids ) ) {
-			return new WP_Error(
-				'no_parent',
-				"[JetEngine] Session {$child_id} could not find its Series parent — sync aborted.",
-				[ 'status' => 400 ]
-			);
-		}
-
-		$rel = jet_engine()->relations->get_active_relations( $rel_id );
-		if ( ! $rel ) {
-			return new WP_Error(
-				'invalid_rel',
-				"[JetEngine] Relation {$rel_id} not registered.",
-				[ 'status' => 400 ]
-			);
-		}
-
-		$rel->set_update_context( 'parent' );          // we’re supplying PARENT IDs
-		$rel->update( $child_id, $parent_ids, 'replace' );
-
-		return true;
-	}
-}
-</file>
-
-</files>
 </file>
 
 <file path="quick-sync-scripts/dist/author-media.js">
@@ -5189,10 +3565,6 @@ if ( ! function_exists( 'f12_set_jet_relation' ) ) {
 
 <file path="quick-sync-scripts/dist/series-sync.js">
 "use strict";(()=>{var y=i=>console.log(`[${new Date().toISOString()}]`,i),R=["publish","draft","trash","private"],I="API-SYNC",V="last_synced";function K(i,e=I){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function D(i,e,n){let t=new Set;for(let r in i){let s=i[r];typeof s=="string"?t.add(r):(t.add(s.airtableIdField),s.airtableLinkField&&t.add(s.airtableLinkField))}return t.add("wp_id").add(e).add(n),Array.from(t)}function q(i,e){return e==null?null:Array.isArray(e)?e.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function B(i,e){let n=i.parentTable,t={};for(let r in e){let s=e[r];if(typeof s=="string"){let c=i.getCellValue(r);s==="post_status"?t.post_status=c&&c.name?c.name.toLowerCase():typeof c=="string"?c.toLowerCase():null:t[s]=q(r,c);continue}let o=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);o&&(t[s.wpKey]=o)}return t}async function J(i,e,n){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(n)}),r=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${r.slice(0,500)}`);return{data:JSON.parse(r),status:t.status}}async function C(i,e){var F,h,E,T,L,v,A;let{airtableTable:n,fieldMap:t,envEndpoints:r,skuField:s,titleField:o,allowedStatuses:c=R,secretName:m=I}=i;if(!s||!o)throw new Error("quickSync: skuField and titleField are required");let{recordId:_,env:g}=e;if(!_)throw new Error("Automation must pass {recordId}.");if(!g||!r[g]){let j=Object.keys(r).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${j}`)}let b=r[g],k=Math.floor(Date.now()/1e3);y(`Quick-Sync (${n}) start \u2013 epoch ${k}`);let $=await input.secret(m),M=K($,m),N=base.getTable(n),x=D(t,s,o),l=await N.selectRecordAsync(_,{fields:x});if(!l)throw new Error(`Record ${_} not found in ${n}`);let a=B(l,t);(F=a.sku)!=null||(a.sku=l.getCellValueAsString(s));let d=typeof t[o]=="string"?t[o]:null;d&&((h=a[d])!=null||(a[d]=l.getCellValueAsString(o)||l.name)),a[V]=k;let w=d&&a[d]?a[d]:l.getCellValueAsString(o)||l.name;a.post_status&&!c.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:l.id,sku:a.sku,wp_id:l.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),y(`POSTing to ${b}`);let{data:p,status:O}=await J(b,M,f),u=(L=(E=p.term_id)!=null?E:p.post_id)!=null?L:(T=p==null?void 0:p.data)==null?void 0:T.post_id,S=(v=p.action)!=null?v:"unknown",P=(A=p.message)!=null?A:"";output.set("syncStatus",p&&u?"Success":`HTTP_${O}`),output.set("action",S),output.set("message",P),output.set("postTitle",w),output.set("wpPostId",u!=null?u:null),y(`\u2705 WP ${S} \u2013  ${w}`)}var U={series_title:"post_title",series_slug:"post_name",long_date:"post_date",website_status:"post_status",series_sku:"sku",excerpt:"post_excerpt",series_permalink:"custom_permalink_uri",global_categories:"global-categories",series_filter_category:"series-categories",topics:"topics",series_template:"series-templates",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},primary_cta_image:{airtableIdField:"primary_cta_image_wp_id",airtableLinkField:"primary_cta_image_link",wpKey:"manual1-image"},series_description_title:"series-description_title",series_description:"series-description",who_is_it_for:"series-who-is-it-for",series_purpose:"series-purpose",series_colour_1:"series-colour-1",series_colour_2:"series-colour-2",print_pdf_link:"link_five",custom_pdf_link:"link_ten",youtube_playlist:"youtube-playlist-link",spotify_playlist:"spotify-playlist-link",apple_playlist:"apple-playlist-link",highlights_video:"highlights-video",primary_cta_heading:"manual1-title",primary_cta_title:"manual1-link-title",primary_cta_link:"manual1-link",secondary_cta_heading:"manual2-title",secondary_cta_title:"manual2-link-title",secondary_cta_link:"manual2-link",seo_description:"_aioseo_description",session_title:"custom-session-title",sessions_list:"series-episode-list",session_list_1:"series-episode-list-more",session_list_2:"series-episode-list-3",session_list_3:"series-episode-list-4"},Q=input.config();C({airtableTable:"Series",skuField:"series_sku",titleField:"series_title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/series-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync"}},Q);})();
-</file>
-
-<file path="quick-sync-scripts/dist/sessions-sync.js">
-"use strict";(()=>{var m=i=>console.log(`[${new Date().toISOString()}]`,i),K=["publish","draft","trash","private"],I="API-SYNC",R="last_synced";function V(i,e=I){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function D(i,e,n){let t=new Set;for(let o in i){let s=i[o];typeof s=="string"?t.add(o):(t.add(s.airtableIdField),s.airtableLinkField&&t.add(s.airtableLinkField))}return t.add("wp_id").add(e).add(n),Array.from(t)}function q(i,e){return e==null?null:Array.isArray(e)?e.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function B(i,e){let n=i.parentTable,t={};for(let o in e){let s=e[o];if(typeof s=="string"){let d=i.getCellValue(o);s==="post_status"?t.post_status=d&&d.name?d.name.toLowerCase():typeof d=="string"?d.toLowerCase():null:t[s]=q(o,d);continue}let l=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);l&&(t[s.wpKey]=l)}return t}async function J(i,e,n){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(n)}),o=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${o.slice(0,500)}`);return{data:JSON.parse(o),status:t.status}}async function C(i,e){var S,h,E,T,L,v,A;let{airtableTable:n,fieldMap:t,envEndpoints:o,skuField:s,titleField:l,allowedStatuses:d=K,secretName:b=I}=i;if(!s||!l)throw new Error("quickSync: skuField and titleField are required");let{recordId:_,env:g}=e;if(!_)throw new Error("Automation must pass {recordId}.");if(!g||!o[g]){let P=Object.keys(o).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${P}`)}let k=o[g],y=Math.floor(Date.now()/1e3);m(`Quick-Sync (${n}) start \u2013 epoch ${y}`);let $=await input.secret(b),M=V($,b),j=base.getTable(n),N=D(t,s,l),r=await j.selectRecordAsync(_,{fields:N});if(!r)throw new Error(`Record ${_} not found in ${n}`);let a=B(r,t);(S=a.sku)!=null||(a.sku=r.getCellValueAsString(s));let c=typeof t[l]=="string"?t[l]:null;c&&((h=a[c])!=null||(a[c]=r.getCellValueAsString(l)||r.name)),a[R]=y;let w=c&&a[c]?a[c]:r.getCellValueAsString(l)||r.name;a.post_status&&!d.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:r.id,sku:a.sku,wp_id:r.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),m(`POSTing to ${k}`);let{data:p,status:x}=await J(k,M,f),u=(L=(E=p.term_id)!=null?E:p.post_id)!=null?L:(T=p==null?void 0:p.data)==null?void 0:T.post_id,F=(v=p.action)!=null?v:"unknown",O=(A=p.message)!=null?A:"";output.set("syncStatus",p&&u?"Success":`HTTP_${x}`),output.set("action",F),output.set("message",O),output.set("postTitle",w),output.set("wpPostId",u!=null?u:null),m(`\u2705 WP ${F} \u2013  ${w}`)}var U={session_title:"post_title",session_slug:"post_name",session_description:"post_content",excerpt:"post_excerpt",session_permalink:"_custom_uri",session_sku:"sku",website_status:"post_status",topics_title:"topics",speaker_title:"author_speaker",series_category:"series-categories",global_categories:"global-categories",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},pdf_image_1:{airtableIdField:"pdf_image_1_wp_id",airtableLinkField:"pdf_image_1_link",wpKey:"pdf-image-1"},pdf_image_2:{airtableIdField:"pdf_image_2_wp_id",airtableLinkField:"pdf_image_2_link",wpKey:"manual2-image"},pdf_title_1:"custom-pdf-title-1",pdf_link_1:"link_ten",pdf_title_2:"custom-pdf-title-2",pdf_link_2:"link_eleven",alt_link:"link_five",youtube_link:"link_one",vimeo_link:"vimeo_link",spotify_podcast:"spotify-podcast-link",apple_podcast:"apple-podcast-link",publish_timestamp:"last_published",series_sku:"jet_relation_series_parent",series_title:"jet_relation_series_title"},Q=input.config();C({airtableTable:"Sessions",skuField:"session_sku",titleField:"session_title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/sessions-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync"}},Q);})();
 </file>
 
 <file path="quick-sync-scripts/src/lib/sync-helpers.ts">
@@ -5613,104 +3985,6 @@ quickSync({
     prod:     'https://four12global.com/wp-json/four12/v1/series-sync',
     staging:  'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/series-sync',
   }
-}, scriptInput);
-</file>
-
-<file path="quick-sync-scripts/src/sessions-sync.ts">
-import { quickSync } from './lib/sync-helpers';
-
-const FIELD_MAP = {
-  /* ── Core WP fields ───────────────────────────── */
-  session_title:       'post_title',
-  session_slug:        'post_name',
-  session_description: 'post_content',
-  excerpt:             'post_excerpt',
-
-  /* Custom permalink (Permalink Manager / AIOSEO) */
-  session_permalink:   '_custom_uri',
-
-  /* ── SKU & Status ─────────────────────────────── */
-  session_sku:         'sku',
-  website_status:      'post_status',
-
-  /* ── Taxonomies ──────────────────────────────── */
-  topics_title:        'topics',
-  speaker_title:       'author_speaker',
-  series_category:     'series-categories',
-  global_categories:   'global-categories',
-
-  /* ── ACTIVE media (prefer ID, fallback URL) ──── */
-  featured_image: {
-    airtableIdField:   'featured_image_wp_id',
-    airtableLinkField: 'featured_image_link',
-    wpKey: '_thumbnail_id',
-  },
-  listing_image: {
-    airtableIdField:   'listing_image_wp_id',
-    airtableLinkField: 'listing_image_link',
-    wpKey: 'listing-image',
-  },
-  no_words_image: {
-    airtableIdField:   'no_words_image_wp_id',
-    airtableLinkField: 'no_words_image_link',
-    wpKey: 'no-words-image',
-  },
-  banner_image: {
-    airtableIdField:   'banner_image_wp_id',
-    airtableLinkField: 'banner_image_link',
-    wpKey: 'banner-image',
-  },
-  pdf_image_1: {
-    airtableIdField:   'pdf_image_1_wp_id',
-    airtableLinkField: 'pdf_image_1_link',
-    wpKey: 'pdf-image-1',
-  },
-  pdf_image_2: {
-    airtableIdField:   'pdf_image_2_wp_id',
-    airtableLinkField: 'pdf_image_2_link',
-    wpKey: 'manual2-image',
-  },
-
-  /* ── Meta / Links / Podcast etc. ─────────────── */
-  pdf_title_1:          'custom-pdf-title-1',
-  pdf_link_1:           'link_ten',
-  pdf_title_2:          'custom-pdf-title-2',
-  pdf_link_2:           'link_eleven',
-  alt_link:             'link_five',
-  youtube_link:         'link_one',
-  vimeo_link:           'vimeo_link',
-  spotify_podcast:      'spotify-podcast-link',
-  apple_podcast:        'apple-podcast-link',
-
-  /* ── Timestamps (sync bookkeeping) ───────────── */
-  publish_timestamp:    'last_published',
-
-  /* ── JetEngine relationship (Series parent SKU) ── */
-  series_sku:    'jet_relation_series_parent',
-  series_id:     'jet_relation_series_id',
-  series_title:  'jet_relation_series_title',
-};
-
-/* -------------------------------------------------
-   The single, valid call to input.config() for the entire script run.
--------------------------------------------------- */
-const scriptInput = input.config();
-
-quickSync({
-  /* ----- Airtable table name ----- */
-  airtableTable: 'Sessions',                // Airtable’s table name
-
-  /* ----- Airtable field that holds your permanent SKU & title ----- */
-  skuField:   'session_sku',
-  titleField: 'session_title',
-
-  /* ----- END per-CPT overrides ----- */
-  fieldMap: FIELD_MAP,
-  envEndpoints: {
-    // NOTE: CPT slug on WP is “resources”, so the REST route reflects that.
-    prod:    'https://four12global.com/wp-json/four12/v1/sessions-sync',
-    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync',
-  },
 }, scriptInput);
 </file>
 
@@ -6861,7 +5135,703 @@ Follow these steps to set up the main data sync. This action should run **after*
 read me file
 </file>
 
-<file path="quick-sync-plugin/f12-quick-sync.php">
+<file path="quick-sync-plugin/relations.php">
+<?php
+// relations.php  (v3.1 - Production Final)
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Sets the parent for a child post using the parent's SKU.
+ * This is a high-level function that encapsulates the entire process of
+ * finding the parent, setting the relation context, and updating the link.
+ * It will REPLACE any existing parent for the child in this relation.
+ *
+ * @param int   $child_id         The ID of the child post.
+ * @param string $parent_sku      The SKU of the parent post to link.
+ * @param array  $relation_config The configuration array from the module's map.
+ * @return true|WP_Error
+ */
+function f12_set_relation_parent_by_sku( int $child_id, string $parent_sku, array $relation_config ) {
+    
+    // 1. Find the parent post by its SKU.
+    $parent_post = f12_get_post_by_sku( $parent_sku, $relation_config['parent_cpt'], $relation_config['parent_sku_meta'] );
+
+    if ( ! $parent_post ) {
+        f12_sync_log("[JetEngine] FAILED: Parent post with SKU '{$parent_sku}' not found.");
+        return new WP_Error('parent_not_found', "Parent post with SKU '{$parent_sku}' not found.");
+    }
+    $parent_id = $parent_post->ID;
+
+    // 2. Get the relation object from JetEngine.
+    $rel_id = (int) $relation_config['relation_id'];
+    $rel = jet_engine()->relations->get_active_relations( $rel_id );
+
+    if ( ! $rel ) {
+        f12_sync_log("[JetEngine] FAILED: Relation object for ID '{$rel_id}' not found or is inactive.");
+        return new WP_Error('relation_not_found', "JetEngine Relation '{$rel_id}' not found.");
+    }
+
+    // 3. Set the context and update the relationship. This is the critical sequence.
+    $rel->set_update_context( 'child' );
+    $rel->update( $parent_id, $child_id );
+
+    f12_sync_log("[JetEngine] SUCCESS: Linked child ID {$child_id} to parent ID {$parent_id} for relation {$rel_id}.");
+
+    return true;
+}
+</file>
+
+<file path="quick-sync-plugin/repomix-output.xml">
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+modules/
+  author-sync.php
+  leaders-sync.php
+  series-sync.php
+  sessions-sync.php
+core-helpers.php
+f12-quick-sync.php
+module-base.php
+README.md
+relations.php
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="modules/author-sync.php">
+<?php
+/**
+ * Quick Sync Module: Author/Speaker Taxonomy (Production Ready)
+ *
+ * This module syncs data from Airtable to the 'author_speaker' WordPress taxonomy.
+ *
+ * Features:
+ * - Implements a "whitelist" for meta fields to ensure data integrity and prevent database pollution.
+ * - Unknown meta keys from the payload are logged and ignored, not stored.
+ * - Restores the robust `wp_id` -> `SKU` -> `slug` lookup chain for de-duplication.
+ * - Only deletes meta on explicit `null` values to prevent accidental data loss.
+ * - Integrates Parsedown to convert Markdown bios to safe HTML.
+ * - Provides detailed logging and includes warnings in the API response for ignored fields.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+
+class F12_Author_Speaker_Sync_Module {
+
+    // --- Configuration ---
+    private $endpoint_slug = 'author-sync';
+    private $taxonomy = 'author_speaker';
+    private $sku_meta_key = 'sku';
+
+    /**
+     * @var array A whitelist of meta keys allowed to be synced from the payload.
+     * All other meta keys will be logged as a warning and ignored.
+     */
+    private $allowed_meta_keys = [
+        'profile_image',
+        'status',
+        // Add other known, valid meta keys here as your schema evolves.
+        // e.g., 'author_twitter_handle', 'author_linkedin_url'
+    ];
+    
+    /**
+     * Public getter for the main plugin router.
+     * @return string The slug for the REST API endpoint (e.g., 'author-sync').
+     */
+    public function get_endpoint_slug() {
+        return $this->endpoint_slug;
+    }
+
+    /**
+     * Public getter for the main plugin router to define API arguments.
+     * @return array Standard argument definitions for the REST endpoint.
+     */
+    public function get_rest_api_args() {
+        return [
+            'sku' => [
+                'type'              => 'string',
+                'required'          => true,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => 'Unique identifier (SKU) for the Author/Speaker term.',
+            ],
+            'fields' => [
+                'type'              => 'object',
+                'required'          => true,
+                'description'       => 'Object containing all term data fields.',
+            ],
+            'wp_id' => [
+                'type'              => 'integer',
+                'required'          => false,
+                'sanitize_callback' => 'absint',
+                'description'       => 'WordPress Term ID for fast-path updates.',
+            ],
+            'airtableRecordId' => [
+                'type'              => 'string',
+                'required'          => false,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => 'Optional Airtable Record ID for logging.',
+            ],
+        ];
+    }
+    
+    /**
+     * The main handler for the sync request.
+     */
+    public function handle_sync_request( WP_REST_Request $request ) {
+        $json_params = $request->get_json_params();
+
+        // --- 1. Validate Payload ---
+        $sku = isset( $json_params['sku'] ) ? sanitize_text_field( $json_params['sku'] ) : null;
+        $payload = isset( $json_params['fields'] ) ? (array) $json_params['fields'] : null;
+        $wp_id = isset( $json_params['wp_id'] ) ? absint( $json_params['wp_id'] ) : 0;
+        
+        if ( empty($sku) || empty($payload) || empty($payload['name']) ) {
+             return new WP_Error('f12_invalid_author_payload', 'Request requires a top-level SKU and a fields object containing at least a "name".', ['status' => 400]);
+        }
+        
+        // --- 2. Find Existing Term ---
+        $existing_term = $this->find_existing_term($sku, $payload, $wp_id);
+        $mode = $existing_term ? 'update' : 'create';
+        
+        // --- 3. Prepare Core Term Data ---
+        $name = sanitize_text_field($payload['name']);
+        $slug = isset($payload['slug']) ? sanitize_title($payload['slug']) : sanitize_title($name);
+        // Prefer as_description, then description, then empty string
+        $raw_description = $payload['as_description'] ?? $payload['description'] ?? '';
+        if (isset($payload['as_description']) && is_string($payload['as_description']) && class_exists('Parsedown')) {
+            $description = wp_kses_post(Parsedown::instance()->setSafeMode(true)->text($payload['as_description']));
+        } else {
+            $description = is_string($raw_description) ? $raw_description : '';
+        }
+        // Build term_data WITHOUT 'description'
+        $term_data = [
+            'slug' => $slug,
+        ];
+
+        // --- 4. Create or Update Term ---
+        if ('update' === $mode) {
+            $result = wp_update_term($existing_term->term_id, $this->taxonomy, $term_data);
+            $term_id = is_wp_error($result) ? 0 : $existing_term->term_id;
+        } else {
+            $result = wp_insert_term($name, $this->taxonomy, $term_data);
+            $term_id = is_wp_error($result) ? 0 : (int) $result['term_id'];
+        }
+
+        // --- Save the rich-text HTML into term-meta (as_description) ---
+        if ($term_id) {
+            $current = get_term_meta($term_id, 'as_description', true);
+            if ($current !== $description) {
+                update_term_meta($term_id, 'as_description', wp_kses_post($description));
+            }
+        }
+
+        if (is_wp_error($result) || $term_id === 0) {
+            $error_message = is_wp_error($result) ? $result->get_error_message() : 'Term could not be created or updated.';
+            return new WP_Error('f12_term_save_failed', $error_message, ['status' => 500]);
+        }
+
+        // --- 5. Process Meta Fields (using the Whitelist approach) ---
+        $this->process_meta_fields($term_id, $sku, $payload, $ignored_keys_for_response);
+        
+        // --- 6. Return Success Response ---
+        $response_data = [
+            'term_id' => $term_id,
+            'action'  => $mode,
+            'sku'     => $sku,
+            'message' => sprintf('Author/Speaker term (ID: %d) %s successfully.', $term_id, $mode),
+        ];
+
+        if (!empty($ignored_keys_for_response)) {
+            $response_data['warnings'] = [
+                'ignored_meta_keys' => array_unique($ignored_keys_for_response)
+            ];
+        }
+
+        return rest_ensure_response($response_data);
+    }
+    
+    /**
+     * Finds an existing term using the robust `wp_id` -> `SKU` -> `slug` lookup chain.
+     *
+     * @param string $sku The unique SKU for the term.
+     * @param array $payload The incoming fields payload, used to get the slug.
+     * @param int $wp_id The WordPress Term ID, if provided.
+     * @return WP_Term|null The found term object or null.
+     */
+    private function find_existing_term($sku, $payload, $wp_id) {
+        // 1. Fast-path: Check provided Term ID first.
+        if ($wp_id > 0) {
+            $term = get_term($wp_id, $this->taxonomy);
+            if ($term && !is_wp_error($term) && get_term_meta($term->term_id, $this->sku_meta_key, true) === $sku) {
+                f12_sync_log(sprintf('[AuthorSync] Term found via fast-path wp_id: %d', $wp_id));
+                return $term;
+            }
+        }
+        
+        // 2. Primary lookup: Find by SKU meta key.
+        $terms = get_terms([
+            'taxonomy'   => $this->taxonomy,
+            'hide_empty' => false,
+            'number'     => 1,
+            'meta_query' => [['key' => $this->sku_meta_key, 'value' => $sku]],
+        ]);
+        if (!empty($terms) && !is_wp_error($terms)) {
+            f12_sync_log(sprintf('[AuthorSync] Term found via SKU meta: %s', $sku));
+            return $terms[0];
+        }
+        
+        // 3. Fallback: Find by slug (for claiming manually created terms).
+        $slug_to_check = isset($payload['slug']) ? $payload['slug'] : (isset($payload['name']) ? $payload['name'] : '');
+        if (!empty($slug_to_check)) {
+            $slug = sanitize_title($slug_to_check);
+            $term = get_term_by('slug', $slug, $this->taxonomy);
+            if ($term && !is_wp_error($term)) {
+                $existing_sku = get_term_meta($term->term_id, $this->sku_meta_key, true);
+                if (empty($existing_sku)) {
+                    f12_sync_log(sprintf('[AuthorSync] Term found via SLUG FALLBACK: %s. Claiming it for SKU %s.', $slug, $sku));
+                    return $term;
+                }
+            }
+        }
+        
+        return null; // Term not found
+    }
+
+    /**
+     * Safely processes meta fields based on the whitelist.
+     *
+     * @param int $term_id The ID of the term to update.
+     * @param string $sku The SKU of the term, for special handling.
+     * @param array $payload The incoming fields payload.
+     * @param array &$ignored_keys_for_response A reference to an array to store warnings.
+     */
+    private function process_meta_fields($term_id, $sku, $payload, &$ignored_keys_for_response = []) {
+        // Always ensure the SKU meta is set correctly.
+        update_term_meta($term_id, $this->sku_meta_key, $sku);
+        
+        // These keys were handled as core properties and should not be processed as meta.
+        $handled_core_keys = ['name', 'slug', 'as_description'];
+        
+        foreach ($payload as $meta_key => $meta_value) {
+            // Skip keys that are core properties or the SKU itself.
+            if (in_array($meta_key, $handled_core_keys, true) || $meta_key === $this->sku_meta_key) {
+                continue;
+            }
+
+            $meta_key_sanitized = sanitize_key($meta_key);
+
+            // --- THE WHITELIST GATE ---
+            if (!in_array($meta_key_sanitized, $this->allowed_meta_keys, true)) {
+                f12_sync_log(sprintf('[AuthorSync] Ignored unknown meta key "%s" for term ID %d. Not in allowed list.', $meta_key_sanitized, $term_id));
+                $ignored_keys_for_response[] = $meta_key_sanitized;
+                continue; // Skip rogue key
+            }
+
+            // --- SAFE META HANDLING (for whitelisted keys only) ---
+            if ($meta_value === null) {
+                // Explicitly delete meta if the payload sends null.
+                delete_term_meta($term_id, $meta_key_sanitized);
+                f12_sync_log(sprintf('[AuthorSync] Deleted meta key "%s" for term ID %d due to null value.', $meta_key_sanitized, $term_id));
+            } else {
+                // Update meta for any other value.
+                update_term_meta($term_id, $meta_key_sanitized, $meta_value);
+            }
+        }
+    }
+}
+</file>
+
+<file path="modules/leaders-sync.php">
+<?php
+/**
+ * Quick Sync Module: Leaders CPT (f12-leaders)
+ *
+ * Provides the specific configuration for syncing the 'f12-leaders' Custom Post Type.
+ * This module includes special handling to parse a Markdown description into HTML.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Leader_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'f12-leaders' CPT.
+     */
+    protected function init() {
+        // --- 1. Core Configuration ---
+        $this->cpt = 'f12-leaders';
+        $this->endpoint_slug = 'leader-sync';
+        $this->sku_meta_key = 'leader_sku';
+
+        // --- 2. Field Mapping (Payload Key => WP Destination) ---
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_excerpt' => 'post_excerpt', // Airtable 'leader_description' is mapped here.
+        ];
+
+        $this->taxonomy_map = [
+            'leadership-role' => 'leadership-role',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+        ];
+
+        $this->post_content_key = null;
+    }
+
+    /**
+     * Override the special meta processing hook to handle Markdown conversion.
+     */
+    protected function _process_special_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // Check if the 'leader_description' field exists in the payload.
+        if ( array_key_exists( 'leader_description', $payload ) ) {
+            
+            $raw_markdown = $payload['leader_description'];
+            $html_output = '';
+
+            // Ensure Parsedown is available and the value is a non-empty string.
+            if ( class_exists('Parsedown') && is_string($raw_markdown) && !empty($raw_markdown) ) {
+                // Convert Markdown to safe HTML.
+                $html_output = wp_kses_post( Parsedown::instance()->setSafeMode(true)->text($raw_markdown) );
+                f12_sync_log(sprintf('[LeaderSync] Parsed Markdown for leader_description on post ID %d.', $post_id));
+            } else {
+                // If it's not a string or Parsedown is missing, just sanitize it.
+                $html_output = is_string($raw_markdown) ? wp_kses_post($raw_markdown) : '';
+            }
+
+            // Update the meta field with the processed HTML.
+            update_post_meta($post_id, 'leader_description', $html_output);
+
+            // IMPORTANT: Unset the key from the payload so the base class
+            // doesn't process it a second time as a generic meta field.
+            unset($payload['leader_description']);
+
+            // Log the change for the response summary.
+            if ( ! in_array( 'leader_description (Markdown parsed)', $changed_summary['special'] ) ) {
+                $changed_summary['special'][] = 'leader_description (Markdown parsed)';
+            }
+        }
+    }
+}
+</file>
+
+<file path="modules/series-sync.php">
+<?php
+/**
+ * Quick Sync Module: Series CPT
+ *
+ * Provides the specific configuration for syncing the 'series' Custom Post Type.
+ * It inherits all universal processing logic (Timezone, AIOSEO, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'series' CPT.
+     */
+    protected function init() {
+        // --- Core Configuration ---
+        $this->cpt = 'series';
+        $this->endpoint_slug = 'series-sync';
+        $this->sku_meta_key = 'sku';
+
+        // --- Field Mapping ---
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_date'    => 'post_date',
+            'post_status'  => 'post_status',
+        ];
+
+        $this->taxonomy_map = [
+            'global-categories' => 'global-categories',
+            'series-categories' => 'series-categories',
+            'topics'            => 'topics',
+            'series-templates'  => 'series-templates',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+            'listing-image',
+            'no-words-image',
+            'banner-image',
+            'manual1-image',
+        ];
+
+        $this->post_content_key = 'series-description';
+        $this->duplicate_post_content_to_meta = true;
+    }
+
+    // No other methods are needed here. The timezone and AIOSEO logic
+    // are now handled automatically by the base class.
+}
+</file>
+
+<file path="modules/sessions-sync.php">
+<?php
+/**
+ * Quick Sync Module: Sessions CPT
+ *
+ * Provides the specific configuration for syncing the 'sessions' Custom Post Type.
+ * It inherits all universal processing logic (Timezone, AIOSEO, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'sessions' CPT.
+     */
+    protected function init() {
+        // --- Core Configuration ---
+        $this->cpt = 'resources';
+        $this->endpoint_slug = 'sessions-sync';
+        $this->sku_meta_key = 'sku';
+
+        // --- Field Mapping ---
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_date'    => 'post_date',
+            'post_status'  => 'post_status',
+        ];
+
+        $this->taxonomy_map = [
+            'global-categories' => 'global-categories',
+            'series-categories' => 'series-categories',
+            'topics'            => 'topics',
+            'series-templates'  => 'series-templates',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+            'listing-image',
+            'no-words-image',
+            'banner-image',
+            'manual1-image',
+        ];
+
+        // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
+        $this->jet_engine_relation_map = [
+            'jet_relation_series_parent' => [
+                'relation_id'      => 63,
+                'parent_cpt'       => 'series',
+                'parent_sku_meta'  => 'sku',
+                // no 'mode' key — helper is hard-coded to replace
+            ],
+        ];
+
+    }
+
+}
+</file>
+
+<file path="core-helpers.php">
+<?php
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+/**
+ * Centralized permission check for all sync endpoints.
+ * Relies on WordPress Application Passwords.
+ */
+function f12_quick_sync_permission_check( WP_REST_Request $request ) {
+    if ( ! current_user_can( 'edit_posts' ) ) {
+        return new WP_Error(
+            'rest_forbidden',
+            __( 'You do not have permission to perform this action.', 'f12-quick-sync' ),
+            [ 'status' => 403 ]
+        );
+    }
+    return true;
+}
+
+/**
+ * Logs messages to the PHP error log if WP_DEBUG and WP_DEBUG_LOG are enabled.
+ */
+function f12_sync_log( $message ) {
+    if ( defined( 'WP_DEBUG' ) && WP_DEBUG === true && defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG === true ) {
+        $prefix = '[Four12 Quick Sync] ';
+        if ( is_array( $message ) || is_object( $message ) ) {
+            error_log( $prefix . print_r( $message, true ) );
+        } else {
+            error_log( $prefix . $message );
+        }
+    }
+}
+
+/**
+ * Retrieves a single post object by its SKU meta field.
+ *
+ * @param string $sku The SKU to search for.
+ * @param string $cpt The post type to search within.
+ * @param string $sku_meta_key The meta key for the SKU.
+ * @return WP_Post|null The found WP_Post object or null if not found.
+ */
+function f12_get_post_by_sku( $sku, $cpt, $sku_meta_key ) {
+    if ( empty( $sku ) || empty($cpt) || empty($sku_meta_key) ) {
+        return null;
+    }
+    $query_args = [
+        'post_type'      => $cpt,
+        'post_status'    => 'any',
+        'posts_per_page' => 1,
+        'meta_query'     => [
+            [
+                'key'   => $sku_meta_key,
+                'value' => $sku,
+            ],
+        ],
+        'fields'         => '', // Return full post objects
+    ];
+    $posts = get_posts( $query_args );
+
+    if ( ! empty( $posts ) ) {
+        if ( count( $posts ) > 1 ) {
+            f12_sync_log( sprintf( 'Warning: Duplicate SKU "%s" detected in CPT "%s". Found %d posts. Returning the first one (ID: %d).', esc_html( $sku ), $cpt, count( $posts ), $posts[0]->ID ) );
+        }
+        return $posts[0];
+    }
+    return null;
+}
+
+/**
+ * Sideloads an image from a URL into the WordPress Media Library.
+ *
+ * @param string $image_url The URL of the image to sideload.
+ * @param int    $post_id   The ID of the post to attach the image to (0 for unattached).
+ * @param string $desc      Description for the image media item (optional).
+ * @return int|WP_Error Attachment ID on success, WP_Error on failure.
+ */
+function f12_sideload_image_from_url( $image_url, $post_id = 0, $desc = null ) {
+    if ( empty( $image_url ) || ! filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
+        return new WP_Error( 'invalid_image_url', __( 'Invalid image URL provided for sideloading.', 'f12-quick-sync' ), $image_url );
+    }
+
+    if ( ! function_exists( 'media_handle_sideload' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+    }
+
+    $tmp = download_url( $image_url );
+    if ( is_wp_error( $tmp ) ) {
+        @unlink( $tmp );
+        return new WP_Error( 'image_download_failed', sprintf( __( 'Could not download image from URL: %s. Error: %s', 'f12-quick-sync' ), esc_url($image_url), $tmp->get_error_message() ), $tmp->get_error_data() );
+    }
+
+    $file_array = [
+        'name'     => basename( strtok( $image_url, '?' ) ),
+        'tmp_name' => $tmp,
+    ];
+
+    if ( is_wp_error( $file_array['tmp_name'] ) ) {
+        @unlink( $file_array['tmp_name'] );
+        return new WP_Error( 'image_temp_store_failed', __( 'Could not store temporary image file after download.', 'f12-quick-sync' ), $file_array['tmp_name'] );
+    }
+
+    $attachment_id = media_handle_sideload( $file_array, $post_id, $desc );
+    
+    @unlink( $file_array['tmp_name'] );
+
+    if ( is_wp_error( $attachment_id ) ) {
+        return new WP_Error( 'image_sideload_failed', sprintf( __( 'Could not sideload image. Error: %s', 'f12-quick-sync' ), $attachment_id->get_error_message() ), $attachment_id->get_error_data() );
+    }
+
+    return (int) $attachment_id;
+}
+
+/**
+ * Returns "now" as DateTime in the site’s timezone.
+ */
+function f12qs_now(): DateTime {
+    return new DateTime( 'now', wp_timezone() ); // site tz
+}
+
+/** Local “MySQL” string – what WP expects for post_date */
+function f12qs_mysql_local( DateTime $dt ): string {
+    return $dt->format( 'Y-m-d H:i:s' );
+}
+
+/** UTC “MySQL” string – what WP expects for post_date_gmt */
+function f12qs_mysql_gmt( DateTime $dt ): string {
+    $utc = clone $dt;
+    $utc->setTimezone( new DateTimeZone( 'UTC' ) );
+    return $utc->format( 'Y-m-d H:i:s' );
+}
+
+/** Pure UTC Unix timestamp – what JetEngine wants when “Save as timestamp” */
+function f12qs_unix_utc( DateTime $dt ): int {
+    $utc = clone $dt;
+    $utc->setTimezone( new DateTimeZone( 'UTC' ) );
+    return $utc->getTimestamp();
+}
+</file>
+
+<file path="f12-quick-sync.php">
 <?php
 /**
  * Plugin Name:       Four12 - Quick Sync Framework
@@ -6975,7 +5945,8 @@ add_action( 'plugins_loaded', function () {
 	}
 
 	// Already loaded?  Skip (prevents redeclare in tests/CLI).
-	if ( function_exists( 'f12_set_jet_relation' ) ) {
+	// This now checks for the correct, final function name.
+	if ( function_exists( 'f12_set_relation_parent_by_sku' ) ) {
 		return;
 	}
 
@@ -6983,7 +5954,7 @@ add_action( 'plugins_loaded', function () {
 }, 20 ); // priority 20 : JetEngine boots at 10, so we're safely after it
 </file>
 
-<file path="quick-sync-plugin/module-base.php">
+<file path="module-base.php">
 <?php
 use AIOSEO\Plugin\Common\Models\Post as AioseoPost;
 
@@ -7133,12 +6104,12 @@ abstract class F12_Quick_Sync_Module_Base {
         $post_id = (int) $post_id_after_save;
     
         // Process remaining fields
-        $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
+                $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
         $this->_process_taxonomies( $post_id, $payload, $sku, $changed_summary );
         $this->_process_special_fields( $post_id, $payload, $sku, $changed_summary ); // This now handles AIOSEO universally
         $this->_process_jet_engine_relations( $post_id, $payload, $sku, $changed_summary );
         $this->_process_meta_fields( $post_id, $payload, $sku, $changed_summary );
-    
+
         // ---- Prepare and return response ----
         $action = ( 'create' === $mode ) ? 'created' : 'updated';
         // Retrieve the post title for the response
@@ -7453,52 +6424,479 @@ abstract class F12_Quick_Sync_Module_Base {
      * Sync JetEngine relationships declared in $this->jet_engine_relation_map.
      */
     protected function _process_jet_engine_relations( int $child_id, array &$payload, $sku, array &$changed_summary ) {
-
-        if ( empty( $this->jet_engine_relation_map ) || ! function_exists( 'f12_set_jet_relation' ) ) {
+        if ( empty( $this->jet_engine_relation_map ) || ! function_exists( 'f12_set_relation_parent_by_sku' ) ) {
             return;
         }
 
         foreach ( $this->jet_engine_relation_map as $payload_key => $cfg ) {
-
             if ( ! isset( $payload[ $payload_key ] ) ) {
                 continue;
             }
 
-            $raw      = $payload[ $payload_key ];
-            $sku_list = is_array( $raw ) ? $raw : array_map( 'trim', explode( ',', (string) $raw ) );
-            $parent_ids = [];
+            $raw_skus = $payload[ $payload_key ];
+            $parent_sku_list = is_array( $raw_skus ) ? $raw_skus : array_map( 'trim', explode( ',', (string) $raw_skus ) );
+            $parent_sku_list = array_filter( $parent_sku_list );
 
-            foreach ( array_filter( $sku_list ) as $sku ) {
-                $parent_post = f12_get_post_by_sku( $sku, $cfg['parent_cpt'], $cfg['parent_sku_meta'] );
-                if ( $parent_post ) {
-                    $parent_ids[] = $parent_post->ID;
-                } else {
-                    f12_sync_log( "[JetEngine] Parent SKU '{$sku}' not found for CPT '{$cfg['parent_cpt']}'." );
+            // Get the relation object to handle disconnection.
+            $rel = jet_engine()->relations->get_active_relations( $cfg['relation_id'] );
+            if (!$rel) continue;
+
+            if ( empty($parent_sku_list) ) {
+                // Handle disconnection if payload sends an empty list.
+                $rel->delete_rows( null, $child_id );
+                f12_sync_log( "[JetEngine] Disconnected all parents from child={$child_id} due to empty payload." );
+                $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}_disconnected";
+            } else {
+                // Call the high-level helper function to do all the work.
+                $parent_sku = $parent_sku_list[0];
+                $result = f12_set_relation_parent_by_sku( $child_id, $parent_sku, $cfg );
+
+                if ( ! is_wp_error($result) ) {
+                    $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
                 }
             }
 
-            $result = f12_set_jet_relation(
-                $cfg['relation_id'],
-                $child_id,     // the Session post
-                $parent_ids    // array of Series parents
-            );
-
-            if ( is_wp_error( $result ) ) {
-                f12_sync_log( $result->get_error_message() );
-                // Optional: halt the entire sync if parent is mandatory
-                // return $result;
-            } else {
-                $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
-            }
-
-            unset( $payload[ $payload_key ] );           // prevent duplicate handling
+            unset( $payload[ $payload_key ] );
         }
     }
 }
 </file>
 
+<file path="README.md">
+Four12 Quick Sync Framework
+
+Version: 2.1.0
+Author: Four12 Global
+Description: A modular, configuration-driven framework for syncing data from Airtable to WordPress Custom Post Types (CPTs) and Taxonomies via a secure REST API.
+
+This plugin provides a robust foundation for creating multiple "sync" endpoints, each tailored to a specific post type or taxonomy, without duplicating core logic. It's designed for stability, scalability, and rapid development of new data pipelines.
+
+----
+
+f12-quick-sync/
+│
+├─ f12-quick-sync.php        ← Main bootstrap & router (≈150 lines)
+├─ core-helpers.php         ← Re-usable functions (≈200 lines total)
+├─ module-base.php           ← Abstract class every module extends (≈120 lines)
+└─ modules/
+     ├─ series.php           ← One class, mapping lives here
+     └─ author.php           ← Ditto (add more modules as you grow)
+vendor/
+    └─ parsedown/Parsedown.php   ← Left untouched
+
+----
+
+Table of Contents
+
+Core Philosophy
+
+How It Works: The End-to-End Flow
+
+File Structure
+
+Key Features & Universal Logic
+
+Payload Anatomy
+
+How to Add a New CPT Sync Module
+
+How to Add a New Taxonomy Sync Module
+
+Core Helpers & Shared Logic
+
+Third-Party Integrations
+
+Authentication
+
+Logging & Debugging
+
+Best Practices & Performance
+
+1. Core Philosophy
+
+Configuration over Code: Define what to sync in a module's configuration arrays, not by writing new processing logic.
+
+Don't Repeat Yourself (DRY): All shared logic (post lookup, image sideloading, universal business rules) lives in central files and is inherited or used by all modules.
+
+Modular & Isolated: Each sync endpoint is its own class in the /modules directory. A bug in one module won't break another.
+
+Idempotent & Robust: Running the same sync multiple times will not create duplicate data or cause errors. The system gracefully handles creates, updates, and retries.
+
+2. How It Works: The End-to-End Flow
+
+This plugin is the server-side component of the "Quick Sync" workflow.
+
+Generated mermaid
+flowchart TD
+    subgraph Airtable Automation
+        A[Button Click / Trigger] --> B(Airtable Media Script);
+        B -- "sends image, gets back wp_id" --> C(Airtable QuickSync Script);
+    end
+
+    C -- "POSTs JSON Payload" --> D[WordPress REST API];
+
+    subgraph WordPress (f12-quick-sync plugin)
+        D -- "/four12/v1/series-sync" --> E{Plugin Router};
+        E -- "routes to correct module" --> F[Series or Author Module];
+        F -- "processes data using..." --> G[Base Class Logic & Core Helpers];
+        G -- "creates/updates..." --> H[WP Post or Term];
+    end
+
+    H -- "sends back {post_id, action}" --> C;
+
+
+Airtable Scripts prepare a JSON payload, first syncing images to get Media IDs, then packaging the full record data.
+
+The payload is POSTed to a specific endpoint (e.g., /wp-json/four12/v1/series-sync).
+
+The Plugin Router (f12-quick-sync.php) identifies the correct module based on the endpoint slug.
+
+The Module (e.g., modules/series.php) provides the configuration.
+
+The Base Class or Module Logic executes the sync, using shared helpers for common tasks.
+
+A response is sent back to Airtable confirming the post_id or term_id and action (created or updated).
+
+3. File Structure
+Generated code
+f12-quick-sync/
+│
+├─ f12-quick-sync.php        ← Main plugin file, bootstrapper, and router.
+├─ core-helpers.php          ← Reusable, global functions (logging, sideloading).
+├─ module-base.php           ← The abstract base class with all shared CPT sync logic.
+└─ modules/
+     ├─ series.php           ← Example CPT module. **(This is what you copy for CPTs)**
+     └─ author-speaker.php   ← Example Taxonomy module. **(This is what you copy for Taxonomies)**
+└─ vendor/
+     └─ parsedown/
+          └─ Parsedown.php    ← Third-party library for Markdown parsing.
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+IGNORE_WHEN_COPYING_END
+4. Key Features & Universal Logic
+
+This framework handles complex tasks automatically for you.
+
+Features for All Modules
+
+SKU-based De-duplication: The primary sku field is used to find existing items to prevent duplicates.
+
+wp_id Fast-Path: An optional wp_id in the payload allows the system to bypass the SKU lookup for faster updates.
+
+Secure Authentication: Relies on WordPress Application Passwords for secure API access.
+
+Automatic Logic for CPT Modules (from module-base.php)
+
+Any module extending F12_Quick_Sync_Module_Base gets this for free:
+
+Timezone Normalization: Any payload containing a last_synced key will have its value automatically adjusted to GMT+2 (Johannesburg time).
+
+AIOSEO Integration: If a payload contains the _aioseo_description key, it will be automatically and safely saved using AIOSEO's models.
+
+Dynamic Taxonomy Handling: Automatically creates and assigns terms from arrays, comma-separated strings, or hierarchical strings (Parent > Child).
+
+Image Sideloading: If an image meta key (defined in the module's $image_meta_map) contains a URL, the plugin downloads it, adds it to the Media Library, and saves the attachment ID.
+
+Permalink Manager Integration: Safely handles custom_permalink_uri without conflicting with the native slug.
+
+Features for Taxonomy Modules (from author-speaker.php blueprint)
+
+Robust Term De-duplication: Uses a wp_id -> SKU -> slug lookup chain.
+
+Safe Meta Whitelisting: Prevents database pollution by only saving meta keys defined in an $allowed_meta_keys array. Unknown keys are logged and ignored.
+
+Safe Meta Deletion: Only deletes a meta field if the payload explicitly sends a null value for that key, preventing accidental data loss.
+
+Markdown Support: Easily integrates Parsedown to convert rich text fields to safe HTML.
+
+5. Payload Anatomy
+
+The plugin expects a specific JSON structure from Airtable.
+
+Generated json
+{
+  "airtableRecordId": "recXXXXXXXXXXXXXX",
+  "sku": "S0123",             // Unique identifier (required)
+  "wp_id": 1234,              // WordPress Post/Term ID (optional, for fast updates)
+  "fields": {
+    /* --- Core Fields --- */
+    "post_title": "My Series Title",      // For CPTs
+    "name": "My Author Name",             // For Taxonomies
+    "post_status": "publish",
+
+    /* --- Universal Framework Keys with Special Handling --- */
+    "last_synced": 1672531200,            // Becomes GMT+2 automatically for CPTs
+    "_aioseo_description": "My SEO desc.", // Saved via AIOSEO automatically for CPTs
+    "custom_permalink_uri": "path/to/my-series/", // Handled by Permalink Manager for CPTs
+
+    /* --- Image Fields --- */
+    "_thumbnail_id": 567,                 // WP Media ID (preferred)
+    "banner-image": "https://.../img.jpg",    // URL (fallback, will be sideloaded)
+    
+    /* --- Taxonomy Fields --- */
+    "topics": ["Topic A", "Topic B"],
+    "series-categories": "Parent > Child"
+  }
+}
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Json
+IGNORE_WHEN_COPYING_END
+6. How to Add a New CPT Sync Module
+
+Creating a new endpoint for a CPT (e.g., "Events") is incredibly simple.
+
+Step 1: Create the Module File
+Duplicate modules/series.php and rename it to modules/events.php.
+
+Step 2: Edit the Class
+Open modules/events.php and change the class name and configuration properties.
+
+Generated php
+<?php
+// modules/events.php
+
+class F12_Events_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    protected function init() {
+        // --- 1. Core Configuration ---
+        $this->cpt = 'event';
+        $this->endpoint_slug = 'event-sync';
+        $this->sku_meta_key = 'event_sku';
+
+        // --- 2. Field Mapping ---
+        $this->core_field_map = [
+            'event_title'   => 'post_title',
+            'event_slug'    => 'post_name',
+        ];
+
+        $this->taxonomy_map = [
+            'event_category_from_airtable' => 'event-categories',
+        ];
+
+        $this->image_meta_map = [
+            '_thumbnail_id',
+            'event_banner_image',
+        ];
+
+        $this->post_content_key = 'event_description'; 
+    }
+}
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+PHP
+IGNORE_WHEN_COPYING_END
+
+Step 3: Done!
+The framework's router will automatically detect the new class and register the endpoint /wp-json/four12/v1/event-sync. It will automatically inherit the universal timezone and AIOSEO handling.
+
+7. How to Add a New Taxonomy Sync Module
+
+Creating an endpoint for a new taxonomy (e.g., "Topics") is just as easy.
+
+Step 1: Create the Module File
+Duplicate modules/author-speaker.php and rename it to modules/topics.php.
+
+Step 2: Edit the Class
+Open modules/topics.php and change the class name and configuration properties.
+
+Generated php
+<?php
+// modules/topics.php
+
+class F12_Topics_Sync_Module {
+    // --- 1. Configuration ---
+    private $endpoint_slug = 'topic-sync';
+    private $taxonomy = 'topics';
+    private $sku_meta_key = 'topic_sku';
+
+    // --- 2. Whitelist your allowed meta keys ---
+    private $allowed_meta_keys = [
+        'topic_icon_class',
+        'is_featured',
+    ];
+
+    // The rest of the file (handle_sync_request, find_existing_term, etc.)
+    // contains the logic. You may need to tweak the Parsedown logic if the
+    // topic description field has a different name.
+}
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+PHP
+IGNORE_WHEN_COPYING_END
+
+Step 3: Done!
+The router will register the new /wp-json/four12/v1/topic-sync endpoint.
+
+8. Core Helpers & Shared Logic
+
+module-base.php: The engine for CPTs. It handles the entire sync lifecycle, including the automatic universal logic.
+
+core-helpers.php: Provides standalone functions available to any module:
+
+f12_sync_log(): Conditional logging.
+
+f12_sideload_image_from_url(): Robust image sideloading.
+
+f12_get_post_by_sku(): Standardized post lookup.
+
+f12_quick_sync_permission_check(): Centralized auth check.
+
+9. Third-Party Integrations
+
+AIOSEO / Permalink Manager / JetEngine: Handled automatically by the CPT base class.
+
+Parsedown: To use Markdown in a taxonomy module, ensure Parsedown.php is in the vendor folder and call it within your module's handler, as seen in author-speaker.php.
+
+10. Authentication
+
+Authentication is handled via WordPress Application Passwords.
+
+In the WordPress admin, go to Users > Your Profile.
+
+Scroll down to "Application Passwords".
+
+Create a new password (e.g., "Airtable Sync").
+
+Copy the generated password (e.g., abcd efgh ijkl mnop qrst uvwx).
+
+In Airtable, create a Secret named API-SYNC and store your credentials in the format username:password (e.g., my_wp_admin_user:abcd efgh ijkl mnop qrst uvwx).
+
+11. Logging & Debugging
+
+Enable WP_DEBUG: To see detailed logs, set WP_DEBUG and WP_DEBUG_LOG to true in your wp-config.php.
+
+Log Location: All server-side sync activity is logged to wp-content/debug.log with the prefix [Four12 Quick Sync].
+
+What is Logged: Failures, successes, and warnings, including ignored meta keys, reasons for skipping a field, and outcomes of third-party integrations.
+
+12. Best Practices & Performance
+
+Throttle on the Airtable Side: To avoid overwhelming the server, process no more than 5-10 records per minute.
+
+Use the wp_id Fast-Path: Ensure your Airtable scripts store the post_id/term_id returned by the API and send it back on subsequent syncs.
+
+Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remember to add its key to the module's $allowed_meta_keys array.
+
+
+##Relationships
+
+# 1. The Core Principle: Orchestrator vs. Specialist
+
+The success of this system hinges on a clear separation of concerns between two key files:
+
+- **The Orchestrator (`module-base.php`):** This file is the "manager." It knows *what* needs to be done but not the low-level details of *how*. Its responsibilities are:
+    - To parse the incoming API payload.
+    - To identify that a relationship needs to be updated (by seeing the `jet_relation_series_parent` key).
+    - To extract the necessary information (the child's ID and the parent's SKU).
+    - To delegate the actual relationship work to a specialist.
+- **The Specialist (`relations.php`):** This file is the "expert." It knows the specific, multi-step process of interacting with the JetEngine API. Its responsibilities are:
+    - To accept high-level instructions (e.g., "link this child to this parent SKU").
+    - To perform all the necessary lookups (finding the parent post by SKU).
+    - To execute the precise, sequential commands required by the JetEngine API (`get_active_relations`, `set_update_context`, `update`).
+    - To handle all API-specific logic, keeping the orchestrator clean.
+
+This architecture ensures that if the JetEngine API ever changes, we only need to update the "specialist" (`relations.php`), leaving the "orchestrator" (`module-base.php`) untouched.
+
+---
+
+## 2. End-to-End Data Flow
+
+Here is the step-by-step journey of a relationship sync from Airtable to the WordPress database:
+
+1. **Airtable (`QuickSync Script`):** A JSON payload is constructed. The child post's SKU is the top-level `sku`, and the parent post's SKU is placed in an array within the `fields` object (e.g., `"jet_relation_series_parent": ["S0099"]`).
+2. **WordPress (`f12-quick-sync.php`):** The main plugin file receives the POST request. It acts as a router, directing the request to the correct module handler based on the endpoint slug (e.g., `/sessions-sync` routes to `F12_Sessions_Sync_Module`).
+3. **The Module (`modules/sessions-sync.php`):** This file provides the **configuration**. It tells the framework that the payload key `jet_relation_series_parent` corresponds to JetEngine `relation_id: 63` and that the parent lives in the `series` CPT.
+4. **The Orchestrator (`module-base.php`):** The `handle_sync_request` method begins processing. After creating/updating the core post, it calls the `_process_jet_engine_relations` method. This method:
+    - Finds the `jet_relation_series_parent` key in the payload.
+    - Extracts the parent SKU (`S0099`).
+    - Calls the high-level specialist function `f12_set_relation_parent_by_sku()`, passing it the child's ID, the parent's SKU, and the relation configuration.
+5. **The Specialist (`relations.php`):** The `f12_set_relation_parent_by_sku()` function executes the core logic:
+    - It uses the helper `f12_get_post_by_sku()` to find the parent post's ID (e.g., `326588`) from its SKU (`S0099`).
+    - It gets the JetEngine relation object using `jet_engine()->relations->get_active_relations(63)`.
+    - **CRITICAL STEP:** It calls `$rel->set_update_context('child')`. This tells JetEngine, "The action I'm about to perform is from the child's perspective. You should **replace** any existing parents for this child with the one I'm about to provide."
+    - It calls `$rel->update(326588, 334333)`, passing the parent ID and child ID as single integers.
+6. **The Database (`wp_postmeta`):** Because the "Register separate DB table" setting is OFF for this relation, JetEngine saves the link by creating/updating a row in the `wp_postmeta` table where `post_id` is the child's ID, `meta_key` is `jet_engine_relation_series_resources`, and `meta_value` is the parent's ID.
+
+---
+
+## 3. Component Breakdown
+
+All of these pieces must work together:
+
+- **`modules/sessions-sync.php` (The Configuration):** Defines the `jet_engine_relation_map`. Without this, the framework wouldn't know what to do with the `jet_relation_series_parent` payload key.
+- **`module-base.php` (The Orchestrator):** The `_process_jet_engine_relations` method reads the configuration and delegates the task.
+- **`relations.php` (The Specialist):** Contains the `f12_set_relation_parent_by_sku` function that knows how to talk to the JetEngine API.
+- **`f12-quick-sync.php` (The Loader):** The `plugins_loaded` action hook at the bottom correctly checks for `function_exists('f12_set_relation_parent_by_sku')` before including `relations.php`. This ensures the specialist is available when the orchestrator needs it.
+- **`core-helpers.php` (The Foundation):** Provides the essential `f12_get_post_by_sku()` function, which is critical for converting the parent's SKU into a usable WordPress Post ID.
+</file>
+
+<file path="relations.php">
+<?php
+// relations.php  (v3.1 - Production Final)
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Sets the parent for a child post using the parent's SKU.
+ * This is a high-level function that encapsulates the entire process of
+ * finding the parent, setting the relation context, and updating the link.
+ * It will REPLACE any existing parent for the child in this relation.
+ *
+ * @param int   $child_id         The ID of the child post.
+ * @param string $parent_sku      The SKU of the parent post to link.
+ * @param array  $relation_config The configuration array from the module's map.
+ * @return true|WP_Error
+ */
+function f12_set_relation_parent_by_sku( int $child_id, string $parent_sku, array $relation_config ) {
+    
+    // 1. Find the parent post by its SKU.
+    $parent_post = f12_get_post_by_sku( $parent_sku, $relation_config['parent_cpt'], $relation_config['parent_sku_meta'] );
+
+    if ( ! $parent_post ) {
+        f12_sync_log("[JetEngine] FAILED: Parent post with SKU '{$parent_sku}' not found.");
+        return new WP_Error('parent_not_found', "Parent post with SKU '{$parent_sku}' not found.");
+    }
+    $parent_id = $parent_post->ID;
+
+    // 2. Get the relation object from JetEngine.
+    $rel_id = (int) $relation_config['relation_id'];
+    $rel = jet_engine()->relations->get_active_relations( $rel_id );
+
+    if ( ! $rel ) {
+        f12_sync_log("[JetEngine] FAILED: Relation object for ID '{$rel_id}' not found or is inactive.");
+        return new WP_Error('relation_not_found', "JetEngine Relation '{$rel_id}' not found.");
+    }
+
+    // 3. Set the context and update the relationship. This is the critical sequence.
+    $rel->set_update_context( 'child' );
+    $rel->update( $parent_id, $child_id );
+
+    f12_sync_log("[JetEngine] SUCCESS: Linked child ID {$child_id} to parent ID {$parent_id} for relation {$rel_id}.");
+
+    return true;
+}
+</file>
+
+</files>
+</file>
+
 <file path="quick-sync-scripts/dist/series-media.js">
 "use strict";(()=>{var v="API-SYNC";function E(t,i=v){if(!t||!t.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}var p=t=>console.log(`[${new Date().toISOString()}]`,t),A="API-SYNC";async function k(t){var c,o;let i=await fetch(t.url);if(!i.ok)throw new Error(`\u2198 download ${t.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(c=t.filename)!=null?c:"file",contentType:(o=i.headers.get("content-type"))!=null?o:"application/octet-stream",srcUrl:t.url}}async function U(t,i,{blob:c,filename:o,contentType:m},d){p(`Uploading ${o}${d?` for record ${d}`:""} \u2026`);try{let n=await fetch(t,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${o}"`},body:c}),a=await n.json();if(!n.ok||!(a!=null&&a.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(a).slice(0,200)}`);return p(`\u2705 Uploaded ${o} \u2192 ${a.source_url} (wpId: ${a.id})`),{id:String(a.id),url:a.source_url}}catch(n){throw console.error(`\u274C Upload failed ${o}${d?` for record ${d}`:""}: ${n.message}`),n}}async function x(t,i,c,o,m,d){var I,S,T,w,C,$,h;let n=(I=t.getCellValue(i.attachmentField))!=null?I:[],a=(S=t.getCellValue(i.wpIdField))!=null?S:"",b=(T=t.getCellValue(i.wpUrlField))!=null?T:"",f=(w=t.getCellValue(i.airtableCacheField))!=null?w:"",g=(f!=null?f:"").split(",").filter(Boolean),F=i.externalUrlField?(((C=t.getCellValueAsString)==null?void 0:C.call(t,i.externalUrlField))||"").trim():"";if(n.length===0&&F)return{wpIds:null,wpUrls:F,cacheUrls:null,changed:F!==b};if(n.length===0)return a||b||f?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let s=n[0];if(g.includes(s.id)&&a)return p(`\u21A9\uFE0F Reusing ${($=s.filename)!=null?$:"file"} (wpId: ${a})`),{changed:!1};try{let{blob:l,filename:u,contentType:y}=await k(s),{id:e,url:r}=await U(c,o,{blob:l,filename:u,contentType:y},m);return{wpIds:e,wpUrls:r,cacheUrls:s.id,changed:!0}}catch(l){return d&&d(l),p(`\u26A0\uFE0F  single-upload failed ${s.url}: ${l.message}`),{changed:!1}}}if(i.isMultiple){let s=[];for(let l of n){if(g.includes(l.id)){p(`\u21A9\uFE0F Reusing ${(h=l.filename)!=null?h:"file"}\u2026`);continue}try{let{blob:u,filename:y,contentType:e}=await k(l),{id:r,url:_}=await U(c,o,{blob:u,filename:y,contentType:e},m);s.push({id:r,url:_,airtableId:l.id})}catch(u){d&&d(u),p(`\u274C  multi\u2011upload failed ${l.url}: ${u.message}`)}}if(s.length||n.some(l=>g.includes(l.id))){let l=n.filter(e=>g.includes(e.id)).map(e=>e.id),u=a.split(",").filter(Boolean).filter((e,r)=>{var _;return g.includes((_=n[r])==null?void 0:_.id)}),y=b.split(",").filter(Boolean).filter((e,r)=>{var _;return g.includes((_=n[r])==null?void 0:_.id)});return{wpIds:[...u,...s.map(e=>e.id)].join(","),wpUrls:[...y,...s.map(e=>e.url)].join(","),cacheUrls:[...l,...s.map(e=>e.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function M(t,i){var l,u,y;let c=!1,{airtableTable:o,envMediaEndpoints:m,imageFields:d,lastModifiedField:n,publishTimestampField:a,secretName:b=A}=t,{recordId:f,env:g}=i;if(!f)throw new Error("Automation must pass {recordId}.");if(!g||!m[g]){let e=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${e}`)}let F=m[g],I=E(await input.secret(b),b),S=base.getTable(o),T=[n,a,...d.flatMap(e=>[e.attachmentField,e.wpIdField,e.wpUrlField,e.airtableCacheField])],w=await S.selectRecordAsync(f,{fields:T});if(!w)throw new Error(`Record ${f} not found.`);let C=w.getCellValue(n),$=w.getCellValue(a);if(C&&$&&Date.parse(C)<=Date.parse($)){p("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let h={},s=!1;for(let e of d)try{let r=await x(w,e,F,I,f,_=>{c=!0});r&&r.changed&&(h[e.wpIdField]=(l=r.wpIds)!=null?l:null,h[e.wpUrlField]=(u=r.wpUrls)!=null?u:null,h[e.airtableCacheField]=(y=r.cacheUrls)!=null?y:null,s=!0)}catch(r){c=!0,p(`\u26A0\uFE0F  ${e.attachmentField}: ${r.message}`)}s?(c?p("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):h[a]=new Date().toISOString(),await S.updateRecordAsync(w,h),p("\u2705\xA0Media sync complete & fields updated")):p("\u2714\xA0No media changes detected \u2013 nothing to write")}var N=input.config(),R={airtableTable:"Series",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"primary_cta_image_attachment",wpIdField:"primary_cta_image_wp_id",wpUrlField:"primary_cta_image_link",airtableCacheField:"primary_cta_image_external",isMultiple:!1}]};M(R,N);})();
+</file>
+
+<file path="quick-sync-scripts/dist/sessions-sync.js">
+"use strict";(()=>{var m=i=>console.log(`[${new Date().toISOString()}]`,i),K=["publish","draft","trash","private"],I="API-SYNC",R="last_synced";function V(i,e=I){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function D(i,e,n){let t=new Set;for(let o in i){let s=i[o];typeof s=="string"?t.add(o):(t.add(s.airtableIdField),s.airtableLinkField&&t.add(s.airtableLinkField))}return t.add("wp_id").add(e).add(n),Array.from(t)}function q(i,e){return e==null?null:Array.isArray(e)?e.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function B(i,e){let n=i.parentTable,t={};for(let o in e){let s=e[o];if(typeof s=="string"){let d=i.getCellValue(o);s==="post_status"?t.post_status=d&&d.name?d.name.toLowerCase():typeof d=="string"?d.toLowerCase():null:t[s]=q(o,d);continue}let l=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);l&&(t[s.wpKey]=l)}return t}async function J(i,e,n){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(n)}),o=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${o.slice(0,500)}`);return{data:JSON.parse(o),status:t.status}}async function C(i,e){var S,h,E,T,L,v,A;let{airtableTable:n,fieldMap:t,envEndpoints:o,skuField:s,titleField:l,allowedStatuses:d=K,secretName:b=I}=i;if(!s||!l)throw new Error("quickSync: skuField and titleField are required");let{recordId:u,env:g}=e;if(!u)throw new Error("Automation must pass {recordId}.");if(!g||!o[g]){let P=Object.keys(o).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${P}`)}let k=o[g],y=Math.floor(Date.now()/1e3);m(`Quick-Sync (${n}) start \u2013 epoch ${y}`);let $=await input.secret(b),M=V($,b),j=base.getTable(n),N=D(t,s,l),r=await j.selectRecordAsync(u,{fields:N});if(!r)throw new Error(`Record ${u} not found in ${n}`);let a=B(r,t);(S=a.sku)!=null||(a.sku=r.getCellValueAsString(s));let c=typeof t[l]=="string"?t[l]:null;c&&((h=a[c])!=null||(a[c]=r.getCellValueAsString(l)||r.name)),a[R]=y;let w=c&&a[c]?a[c]:r.getCellValueAsString(l)||r.name;a.post_status&&!d.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:r.id,sku:a.sku,wp_id:r.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),m(`POSTing to ${k}`);let{data:p,status:x}=await J(k,M,f),_=(L=(E=p.term_id)!=null?E:p.post_id)!=null?L:(T=p==null?void 0:p.data)==null?void 0:T.post_id,F=(v=p.action)!=null?v:"unknown",O=(A=p.message)!=null?A:"";output.set("syncStatus",p&&_?"Success":`HTTP_${x}`),output.set("action",F),output.set("message",O),output.set("postTitle",w),output.set("wpPostId",_!=null?_:null),m(`\u2705 WP ${F} \u2013  ${w}`)}var U={session_title:"post_title",session_slug:"post_name",session_description:"post_content",excerpt:"post_excerpt",session_permalink:"_custom_uri",_aioseo_description:"_aioseo_description",session_sku:"sku",website_status:"post_status",topics_title:"topics",speaker_title:"author_speaker",series_category:"series-categories",global_categories:"global-categories",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},pdf_image_1:{airtableIdField:"pdf_image_1_wp_id",airtableLinkField:"pdf_image_1_link",wpKey:"pdf-image-1"},pdf_image_2:{airtableIdField:"pdf_image_2_wp_id",airtableLinkField:"pdf_image_2_link",wpKey:"manual2-image"},pdf_title_1:"custom-pdf-title-1",pdf_link_1:"link_ten",pdf_title_2:"custom-pdf-title-2",pdf_link_2:"link_eleven",alt_link:"link_five",youtube_link:"link_one",vimeo_link:"vimeo_link",spotify_podcast:"spotify-podcast-link",apple_podcast:"apple-podcast-link",publish_timestamp:"last_published",series_sku:"jet_relation_series_parent",series_wp_id:"jet_relation_series_wp_id",series_title:"jet_relation_series_title"},Q=input.config();C({airtableTable:"Sessions",skuField:"session_sku",titleField:"session_title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/sessions-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync"}},Q);})();
 </file>
 
 <file path="quick-sync-scripts/src/lib/media-helpers.ts">
@@ -7775,6 +7173,106 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
 }
 </file>
 
+<file path="quick-sync-scripts/src/sessions-sync.ts">
+import { quickSync } from './lib/sync-helpers';
+
+const FIELD_MAP = {
+  /* ── Core WP fields ───────────────────────────── */
+  session_title:       'post_title',
+  session_slug:        'post_name',
+  session_description: 'post_content',
+  excerpt:             'post_excerpt',
+
+  /* Custom permalink (Permalink Manager / AIOSEO) */
+  session_permalink:   '_custom_uri',
+  _aioseo_description:     '_aioseo_description',
+
+
+  /* ── SKU & Status ─────────────────────────────── */
+  session_sku:         'sku',
+  website_status:      'post_status',
+
+  /* ── Taxonomies ──────────────────────────────── */
+  topics_title:        'topics',
+  speaker_title:       'author_speaker',
+  series_category:     'series-categories',
+  global_categories:   'global-categories',
+
+  /* ── ACTIVE media (prefer ID, fallback URL) ──── */
+  featured_image: {
+    airtableIdField:   'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id',
+  },
+  listing_image: {
+    airtableIdField:   'listing_image_wp_id',
+    airtableLinkField: 'listing_image_link',
+    wpKey: 'listing-image',
+  },
+  no_words_image: {
+    airtableIdField:   'no_words_image_wp_id',
+    airtableLinkField: 'no_words_image_link',
+    wpKey: 'no-words-image',
+  },
+  banner_image: {
+    airtableIdField:   'banner_image_wp_id',
+    airtableLinkField: 'banner_image_link',
+    wpKey: 'banner-image',
+  },
+  pdf_image_1: {
+    airtableIdField:   'pdf_image_1_wp_id',
+    airtableLinkField: 'pdf_image_1_link',
+    wpKey: 'pdf-image-1',
+  },
+  pdf_image_2: {
+    airtableIdField:   'pdf_image_2_wp_id',
+    airtableLinkField: 'pdf_image_2_link',
+    wpKey: 'manual2-image',
+  },
+
+  /* ── Meta / Links / Podcast etc. ─────────────── */
+  pdf_title_1:          'custom-pdf-title-1',
+  pdf_link_1:           'link_ten',
+  pdf_title_2:          'custom-pdf-title-2',
+  pdf_link_2:           'link_eleven',
+  alt_link:             'link_five',
+  youtube_link:         'link_one',
+  vimeo_link:           'vimeo_link',
+  spotify_podcast:      'spotify-podcast-link',
+  apple_podcast:        'apple-podcast-link',
+
+  /* ── Timestamps (sync bookkeeping) ───────────── */
+  publish_timestamp:    'last_published',
+
+  /* ── JetEngine relationship (Series parent SKU) ── */
+  series_sku:    'jet_relation_series_parent',
+  series_wp_id:    'jet_relation_series_wp_id',
+  series_title:  'jet_relation_series_title',
+};
+
+/* -------------------------------------------------
+   The single, valid call to input.config() for the entire script run.
+-------------------------------------------------- */
+const scriptInput = input.config();
+
+quickSync({
+  /* ----- Airtable table name ----- */
+  airtableTable: 'Sessions',                // Airtable’s table name
+
+  /* ----- Airtable field that holds your permanent SKU & title ----- */
+  skuField:   'session_sku',
+  titleField: 'session_title',
+
+  /* ----- END per-CPT overrides ----- */
+  fieldMap: FIELD_MAP,
+  envEndpoints: {
+    // NOTE: CPT slug on WP is “resources”, so the REST route reflects that.
+    prod:    'https://four12global.com/wp-json/four12/v1/sessions-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync',
+  },
+}, scriptInput);
+</file>
+
 <file path="quick-sync-scripts/package.json">
 {
   "name": "f12-quick-sync",
@@ -7795,6 +7293,637 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
     "esbuild": "^0.25.8",
     "typescript": "^5.8.3"
   }
+}
+</file>
+
+<file path="quick-sync-plugin/f12-quick-sync.php">
+<?php
+/**
+ * Plugin Name:       Four12 - Quick Sync Framework
+ * Plugin URI:        https://four12global.com
+ * Description:       A modular framework for syncing data from Airtable to WordPress CPTs and Taxonomies.
+ * Version:           2.0.0
+ * Author:            Four12 Global
+ * Author URI:        https://four12global.com
+
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+define( 'F12_QUICK_SYNC_PATH', plugin_dir_path( __FILE__ ) );
+define( 'F12_QUICK_SYNC_URL', plugin_dir_url( __FILE__ ) );
+
+
+/**
+ * Main plugin class to coordinate all modules.
+ */
+final class F12_Quick_Sync_Manager {
+
+    private static $instance;
+    private $modules = [];
+
+    /**
+     * Singleton instance.
+     */
+    public static function get_instance() {
+        if ( null === self::$instance ) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    /**
+     * Constructor.
+     */
+    private function __construct() {
+        $this->load_dependencies();
+        $this->instantiate_modules();
+        add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
+    }
+
+    /**
+     * Load all required files.
+     */
+    private function load_dependencies() {
+        require_once F12_QUICK_SYNC_PATH . 'core-helpers.php';
+        require_once F12_QUICK_SYNC_PATH . 'module-base.php';
+        
+        // Load Parsedown library if it exists
+        if ( file_exists( F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php' ) ) {
+            require_once F12_QUICK_SYNC_PATH . 'vendor/parsedown/Parsedown.php';
+        }
+
+        // Autoload all modules from the /modules/ directory
+        foreach ( glob( F12_QUICK_SYNC_PATH . 'modules/*.php' ) as $module_file ) {
+            require_once $module_file;
+        }
+    }
+
+    /**
+     * Find and instantiate all declared module classes.
+     */
+    private function instantiate_modules() {
+        $declared_classes = get_declared_classes();
+        foreach ( $declared_classes as $class_name ) {
+            if ( substr($class_name, -12) === '_Sync_Module' && class_exists($class_name) ) {
+                $this->modules[ $class_name ] = new $class_name();
+            }
+        }
+    }
+
+    /**
+     * Register REST API routes for each loaded module.
+     */
+    public function register_rest_routes() {
+        foreach ( $this->modules as $module ) {
+            if ( ! method_exists($module, 'get_endpoint_slug') || ! method_exists($module, 'handle_sync_request') ) {
+                continue;
+            }
+
+            register_rest_route(
+                'four12/v1',
+                '/' . $module->get_endpoint_slug(),
+                [
+                    'methods'             => WP_REST_Server::CREATABLE, // 'POST'
+                    'callback'            => [ $module, 'handle_sync_request' ],
+                    'permission_callback' => 'f12_quick_sync_permission_check',
+                    'args'                => $module->get_rest_api_args(),
+                ]
+            );
+             f12_sync_log( 'Registered endpoint: /four12/v1/' . $module->get_endpoint_slug() );
+        }
+    }
+}
+
+// Initialize the plugin manager.
+F12_Quick_Sync_Manager::get_instance();
+
+/**
+ * Load the JetEngine relationship helper once JetEngine is available.
+ */
+add_action( 'plugins_loaded', function () {
+	// Bail if JetEngine isn't active (avoids fatals in staging without the plugin).
+	if ( ! function_exists( 'jet_engine' ) ) {
+		return;
+	}
+
+	// Already loaded?  Skip (prevents redeclare in tests/CLI).
+	// This now checks for the correct, final function name.
+	if ( function_exists( 'f12_set_relation_parent_by_sku' ) ) {
+		return;
+	}
+
+	require_once __DIR__ . '/relations.php'; // <-- adjust path if you move the file
+}, 20 ); // priority 20 : JetEngine boots at 10, so we're safely after it
+</file>
+
+<file path="quick-sync-plugin/module-base.php">
+<?php
+use AIOSEO\Plugin\Common\Models\Post as AioseoPost;
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+abstract class F12_Quick_Sync_Module_Base {
+
+    // --- Configuration to be set by child modules ---
+    protected $cpt;
+    protected $endpoint_slug;
+    protected $sku_meta_key;
+    protected $core_field_map = [];
+    protected $taxonomy_map = [];
+    protected $image_meta_map = [];
+    protected $post_content_key;
+    protected $allowed_post_statuses = ['publish', 'draft', 'trash', 'private'];
+    protected bool $duplicate_post_content_to_meta = false;
+    
+    /** @var array  Key = payload field, value = relation config */
+    protected $jet_engine_relation_map = [];
+
+    /**
+     * Constructor to set up module-specific hooks.
+     */
+    public function __construct() {
+        // Make JetEngine honour the site timezone for every datetime meta.
+        add_filter( 'jet-engine/datetime/use-wp-date', '__return_true', 10, 2 );
+        $this->init();
+    }
+
+    /**
+     * Abstract init method for child classes to set properties and add hooks.
+     */
+    abstract protected function init();
+
+    /**
+     * Get the endpoint slug for the router.
+     * @return string
+     */
+    public function get_endpoint_slug() {
+        return $this->endpoint_slug;
+    }
+
+    /**
+     * Define the expected REST API arguments.
+     * @return array
+     */
+    public function get_rest_api_args() {
+        return [
+            'sku' => [
+                'type'              => 'string',
+                'required'          => true,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => esc_html__( 'Unique identifier for the item. Used for de-duplication.', 'f12-quick-sync' ),
+            ],
+            'fields' => [
+                'type'              => 'object',
+                'required'          => true,
+                'description'       => esc_html__( 'Object containing item data fields to be synced.', 'f12-quick-sync' ),
+            ],
+            'airtableRecordId' => [
+                'type'              => 'string',
+                'required'          => false,
+                'sanitize_callback' => 'sanitize_text_field',
+                'description'       => esc_html__( 'Optional Airtable Record ID for logging and reference.', 'f12-quick-sync' ),
+            ],
+            'wp_id' => [
+                'type'              => 'integer',
+                'required'          => false,
+                'sanitize_callback' => 'absint',
+                'description'       => esc_html__( 'Optional WordPress Post/Term ID. If provided, used for a fast-path update.', 'f12-quick-sync' ),
+            ],
+        ];
+    }
+
+    /**
+     * The main handler for the REST request.
+     * This is the refactored logic from the original plugin.
+     */
+    public function handle_sync_request( WP_REST_Request $request ) {
+        $json_params = $request->get_json_params();
+    
+        if ( null === $json_params ) {
+            return new WP_Error( 'f12_bad_json', __( 'Invalid JSON body or Content-Type not application/json.', 'f12-quick-sync' ), [ 'status' => 400 ] );
+        }
+    
+        $sku                 = isset( $json_params['sku'] ) ? sanitize_text_field( $json_params['sku'] ) : null;
+        $fields_from_payload = isset( $json_params['fields'] ) ? $json_params['fields'] : null;
+        $wp_id               = isset( $json_params['wp_id'] ) ? absint( $json_params['wp_id'] ) : 0;
+        
+        if ( empty( $sku ) ) {
+            return new WP_Error( 'f12_missing_sku', __( 'Required top-level "sku" parameter is missing from JSON body.', 'f12-quick-sync' ), [ 'status' => 400 ] );
+        }
+        if ( empty( $fields_from_payload ) || ! is_array( $fields_from_payload ) ) {
+            return new WP_Error( 'f12_invalid_fields', __( 'Required "fields" parameter is missing or not an object in JSON body.', 'f12-quick-sync' ), [ 'status' => 400 ] );
+        }
+        
+        $payload = $fields_from_payload; // No more apply_filters here
+        $changed_summary = [ 'core' => [], 'meta' => [], 'taxonomy' => [], 'permalink' => [], 'special' => [] ];
+    
+        
+        // Leave last_synced untouched; JetEngine will translate this UTC timestamp to local time when displaying.
+
+        // ---- Find existing post ----
+        $post = null;
+        $mode = null;
+    
+        if ( $wp_id > 0 ) {
+            $potential_post = get_post( $wp_id );
+            if ( $potential_post && $potential_post->post_type === $this->cpt ) {
+                $existing_sku = get_post_meta( $potential_post->ID, $this->sku_meta_key, true );
+                // This is the key change: Allow a match if the existing SKU is empty (so we can claim it) or if the SKUs match.
+                if ( empty($existing_sku) || $existing_sku === $sku ) {
+                    $post = $potential_post;
+                    $mode = 'update';
+                    if (empty($existing_sku)) {
+                        f12_sync_log( sprintf( 'Post found via wp_id %d and CLAIMED for SKU %s (was previously empty).', $post->ID, esc_html( $sku ) ) );
+                    } else {
+                        f12_sync_log( sprintf( 'Post found via fast-path wp_id: %d for CPT %s (SKU: %s)', $post->ID, $this->cpt, esc_html( $sku ) ) );
+                    }
+                } else {
+                     f12_sync_log( sprintf( 'wp_id %d provided, but its SKU ("%s") does not match payload SKU ("%s"). Falling back to SKU lookup.', $wp_id, esc_html($existing_sku), esc_html( $sku ) ) );
+                }
+            } else {
+                f12_sync_log( sprintf( 'wp_id %d provided, but post not found or is wrong CPT. Falling back to SKU lookup.', $wp_id ) );
+            }
+        }
+    
+        if ( ! $mode ) {
+            $post = f12_get_post_by_sku( $sku, $this->cpt, $this->sku_meta_key );
+            $mode = $post ? 'update' : 'create';
+        }
+    
+        $post_id = ( 'update' === $mode && $post ) ? $post->ID : 0;
+        
+        // ---- Process and Save ----
+        $post_data = $this->_prepare_core_data( $payload, $sku, $changed_summary );
+        
+        $post_id_after_save = $this->_save_core_post( $post_id, $mode, $post_data, $sku );
+    
+        if ( is_wp_error( $post_id_after_save ) ) {
+            f12_sync_log( 'Error saving post (core fields) for SKU: ' . esc_html( $sku ) . '. Mode: ' . $mode . '. Error: ' . $post_id_after_save->get_error_message() );
+            return $post_id_after_save;
+        }
+        $post_id = (int) $post_id_after_save;
+    
+        // Process remaining fields
+                $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
+        $this->_process_taxonomies( $post_id, $payload, $sku, $changed_summary );
+        $this->_process_special_fields( $post_id, $payload, $sku, $changed_summary ); // This now handles AIOSEO universally
+        $this->_process_jet_engine_relations( $post_id, $payload, $sku, $changed_summary );
+        $this->_process_meta_fields( $post_id, $payload, $sku, $changed_summary );
+
+        // ---- Prepare and return response ----
+        $action = ( 'create' === $mode ) ? 'created' : 'updated';
+        // Retrieve the post title for the response
+        $post_obj = get_post( $post_id );
+        $post_title = $post_obj ? $post_obj->post_title : '';
+        $response_data = [
+            'post_id'    => $post_id,
+            'action'     => $action,
+            'sku'        => $sku,
+            'post_title' => $post_title,
+            'message'    => sprintf(
+                "%s '%s' successfully %s.",
+                ucfirst( $this->cpt ),        // “Series”
+                esc_html( $post_title ),      // “Regional Equip Gauteng”
+                $action                       // “updated” (or “created” etc)
+            ),
+        ];
+    
+        return rest_ensure_response( $response_data );
+    }
+
+
+    /**
+     * Prepares the $post_data array for wp_insert/update_post.
+     */
+    protected function _prepare_core_data( &$payload, $sku, &$changed_summary ) {
+        $post_data = [ 'post_type' => $this->cpt ];
+        $post_data['post_status'] = 'publish'; // Default
+
+        // Standard core fields
+        foreach ( $this->core_field_map as $payload_key => $wp_post_field_key ) {
+            if ( array_key_exists( $payload_key, $payload ) ) {
+
+                // Short-circuit the native slug update if a custom permalink is being used.
+                if ( $wp_post_field_key === 'post_name' && isset($payload['custom_permalink_uri']) && !empty(trim($payload['custom_permalink_uri'])) && class_exists('Permalink_Manager_URI_Functions') ) {
+                    f12_sync_log(sprintf('Core Field Processing: Skipping direct update of native "post_name" because "custom_permalink_uri" is provided for Permalink Manager. (SKU: %s)', esc_html($sku)));
+                    if (!in_array('custom_permalink_uri', $changed_summary['permalink'])) {
+                        $changed_summary['permalink'][] = 'custom_permalink_uri'; // Log permalink change intent
+                    }
+                    unset( $payload[ $payload_key ] ); // Remove post_name from further processing
+                    continue; // Skip to the next field in the loop
+                }
+
+                $value = $payload[ $payload_key ];
+
+                if ( 'post_date' === $wp_post_field_key && ! empty( $value ) ) {
+                    // --- parse incoming string ---------------------------------------------
+                    $dt_local = new DateTime( $value );          // honours the “Z” (UTC)
+                    // 🚨 ALWAYS convert to site timezone – no conditions
+                    $dt_local->setTimezone( wp_timezone() );     // now site time
+
+                    $post_data['post_date']      = f12qs_mysql_local( $dt_local );
+                    $post_data['post_date_gmt']  = f12qs_mysql_gmt(   $dt_local );
+                } elseif ( 'post_status' === $wp_post_field_key ) {
+                    if ( !empty($value) && is_string($value) && in_array( strtolower( $value ), $this->allowed_post_statuses, true ) ) {
+                        $post_data[ $wp_post_field_key ] = strtolower( $value );
+                    }
+                } else {
+                    $post_data[ $wp_post_field_key ] = $value;
+                }
+                
+                if ( ! in_array( $payload_key, $changed_summary['core'] ) ) $changed_summary['core'][] = $payload_key;
+                unset( $payload[ $payload_key ] );
+            }
+        }
+        
+        // Post content
+        if ( $this->post_content_key && array_key_exists( $this->post_content_key, $payload ) ) {
+            $value = $payload[ $this->post_content_key ];
+            $post_data['post_content'] = $value;
+
+            if ( ! in_array( 'post_content (from ' . $this->post_content_key . ')', $changed_summary['special'] ) ) {
+                $changed_summary['special'][] = 'post_content (from ' . $this->post_content_key . ')';
+            }
+
+            // Keep or discard the key depending on module preference
+            if ( ! $this->duplicate_post_content_to_meta ) {
+                unset( $payload[ $this->post_content_key ] );
+            }
+        }
+
+        // If neither post_date nor post_date_gmt set above, default to now.
+        if ( empty( $post_data['post_date'] ) ) {
+            $now_local = f12qs_now();
+            $post_data['post_date']     = f12qs_mysql_local( $now_local );
+            $post_data['post_date_gmt'] = f12qs_mysql_gmt(   $now_local );
+        }
+
+        return $post_data;
+    }
+
+    /**
+     * Saves the core post data.
+     */
+    protected function _save_core_post( $post_id, $mode, $post_data, $sku ) {
+        if ( 'create' === $mode ) {
+            return wp_insert_post( $post_data, true );
+        } else {
+            $post_data['ID'] = $post_id;
+            return wp_update_post( $post_data, true );
+        }
+    }
+
+    /**
+     * Handles custom permalink integration.
+     */
+    protected function _process_permalink( $post_id, &$payload, $sku, &$changed_summary ) {
+        if ( ! class_exists('Permalink_Manager_URI_Functions') || ! isset($payload['custom_permalink_uri']) ) {
+            return;
+        }
+
+        $custom_uri = trim($payload['custom_permalink_uri']);
+        if ( !empty($custom_uri) ) {
+            $new_uri = ltrim($custom_uri, '/');
+            if (substr($new_uri, -1) !== '/') $new_uri .= '/';
+
+            if ($new_uri !== '/') {
+                $save_result = Permalink_Manager_URI_Functions::save_single_uri($post_id, $new_uri, false, true);
+                if ($save_result === true || $save_result === 1) {
+                    f12_sync_log(sprintf('Permalink Manager: Success for post ID %d, URI "%s" (SKU: %s)', $post_id, esc_html($new_uri), esc_html($sku)));
+                    if (!in_array('custom_permalink_uri', $changed_summary['permalink'])) $changed_summary['permalink'][] = 'custom_permalink_uri';
+                }
+            }
+        }
+        unset($payload['custom_permalink_uri']);
+
+        // Prevent native post_name from being processed if a custom permalink was handled.
+        if (isset($this->core_field_map['post_name'])) {
+            unset($payload['post_name']);
+        }
+    }
+
+    /**
+     * Handles all taxonomy assignments.
+     */
+    protected function _process_taxonomies( $post_id, &$payload, $sku, &$changed_summary ) {
+        foreach ( $this->taxonomy_map as $payload_key => $taxonomy_slug ) {
+            if ( ! array_key_exists( $payload_key, $payload ) ) continue;
+
+            $raw_term_values = $payload[ $payload_key ];
+            
+            if ( $raw_term_values === null || $raw_term_values === '' ) {
+                wp_set_post_terms( $post_id, [], $taxonomy_slug, false );
+                if ( ! in_array( $payload_key, $changed_summary['taxonomy'] ) ) $changed_summary['taxonomy'][] = $payload_key;
+                unset( $payload[ $payload_key ] );
+                continue;
+            }
+
+            // ... [Identical hierarchy logic from original file] ...
+            $term_input_sets = [];
+            $temp_term_list = is_array($raw_term_values) ? array_map('strval', $raw_term_values) : array_map('trim', explode(',', $raw_term_values));
+
+            foreach( $temp_term_list as $term_entry_str ) {
+                $term_entry_str = trim($term_entry_str);
+                if (empty($term_entry_str)) continue;
+                if (strpos($term_entry_str, '>') !== false) {
+                    $term_input_sets[] = array_map('trim', explode('>', $term_entry_str));
+                } else {
+                    $term_input_sets[] = [$term_entry_str];
+                }
+            }
+
+            $term_ids_to_set = [];
+            if ( ! empty( $term_input_sets ) ) {
+                foreach ($term_input_sets as $hierarchical_term_parts) {
+                    $parent_id = 0;
+                    foreach ($hierarchical_term_parts as $term_part_name) {
+                        $term = term_exists( $term_part_name, $taxonomy_slug, $parent_id );
+                        if ( ! $term ) $term = term_exists( sanitize_title( $term_part_name ), $taxonomy_slug, $parent_id );
+                        
+                        $term_id = 0;
+                        if ( ! $term ) {
+                            $insert_args = ($parent_id > 0 && is_taxonomy_hierarchical($taxonomy_slug)) ? ['parent' => $parent_id] : [];
+                            $new_term = wp_insert_term( $term_part_name, $taxonomy_slug, $insert_args );
+                            if ( is_wp_error( $new_term ) ) {
+                                f12_sync_log( 'Could not create term "' . $term_part_name . '": ' . $new_term->get_error_message() );
+                                break; 
+                            }
+                            $term_id = (int) $new_term['term_id'];
+                        } else {
+                            $term_id = (int) $term['term_id'];
+                        }
+                        
+                        if ($term_id > 0) {
+                            $term_ids_to_set[] = $term_id;
+                            $parent_id = $term_id;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $term_ids_to_set = array_unique(array_filter($term_ids_to_set));
+            $term_result = wp_set_post_terms( $post_id, $term_ids_to_set, $taxonomy_slug, false );
+
+            if (!is_wp_error($term_result)) {
+                 if ( ! in_array( $payload_key, $changed_summary['taxonomy'] ) ) $changed_summary['taxonomy'][] = $payload_key;
+            }
+            unset( $payload[ $payload_key ] );
+        }
+    }
+    
+    /**
+     * Processes special, universally handled fields like AIOSEO.
+     */
+    protected function _process_special_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // --- AIOSEO Description Handling (Universal) ---
+        // Automatically process if the conventional payload key exists.
+        if ( isset( $payload['_aioseo_description'] ) ) {
+            
+            $raw_desc = sanitize_textarea_field( $payload['_aioseo_description'] );
+            
+            if ( function_exists( 'aioseo' ) && class_exists( AioseoPost::class ) ) {
+                try {
+                    $seoPost = AioseoPost::getPost( (int) $post_id ) ?: AioseoPost::create( [ 'post_id' => (int) $post_id ] );
+                    $seoPost->description = $raw_desc;
+                    method_exists( $seoPost, 'save' ) ? $seoPost->save() : $seoPost->savePost();
+                    f12_sync_log( "AIOSEO: description saved via model for post {$post_id}" );
+                } catch ( Throwable $e ) {
+                    f12_sync_log( 'AIOSEO ERROR: ' . $e->getMessage() . ' - falling back to update_post_meta' );
+                    update_post_meta( $post_id, '_aioseo_description', $raw_desc );
+                }
+            } else {
+                // Fallback if AIOSEO is not active
+                update_post_meta( $post_id, '_aioseo_description', $raw_desc );
+            }
+
+            if ( ! in_array( '_aioseo_description (AIOSEO)', $changed_summary['special'] ) ) {
+                $changed_summary['special'][] = '_aioseo_description (AIOSEO)';
+            }
+            // Unset the key so it's not processed again in the generic meta loop.
+            unset( $payload['_aioseo_description'] );
+        }
+    }
+
+    /**
+     * Hook for child modules to perform special meta field processing.
+     * This method is called before the generic meta loop.
+     * Child classes should unset any keys they handle to prevent double processing.
+     */
+    protected function _process_special_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // Child modules can override this.
+    }
+
+    /**
+     * Handles all remaining fields as post meta, including image sideloading.
+     */
+    protected function _process_meta_fields( $post_id, &$payload, $sku, &$changed_summary ) {
+        // Always ensure SKU meta is correct
+        if ( get_post_meta( $post_id, $this->sku_meta_key, true ) !== $sku ) {
+            update_post_meta( $post_id, $this->sku_meta_key, $sku );
+        }
+        unset($payload[$this->sku_meta_key]);
+
+        // --- Call the hook for special handling ---
+        $this->_process_special_meta_fields( $post_id, $payload, $sku, $changed_summary );
+        // ---------------------------------------------
+
+        foreach ( $payload as $meta_key => $meta_value ) {
+            $meta_key_sanitized = sanitize_key( $meta_key );
+            $processed_meta_value = $meta_value;
+
+            // JetEngine last_synced field: always use UTC timestamp
+            if ($meta_key_sanitized === 'last_synced') {
+                if ($meta_value instanceof DateTime) {
+                    $processed_meta_value = f12qs_unix_utc($meta_value);
+                } elseif (is_numeric($meta_value)) {
+                    // Assume already a timestamp, but cast to int
+                    $processed_meta_value = (int)$meta_value;
+                } elseif (is_string($meta_value)) {
+                    // Try to parse as date string
+                    $dt = new DateTime($meta_value, wp_timezone());
+                    $processed_meta_value = f12qs_unix_utc($dt);
+                }
+            }
+
+            // Image handling
+            if ( in_array( $meta_key, $this->image_meta_map, true ) ) {
+                if ( is_string( $meta_value ) && filter_var( $meta_value, FILTER_VALIDATE_URL ) ) {
+                    $image_desc = get_the_title( $post_id ) ?: $sku;
+                    $attachment_id = f12_sideload_image_from_url( $meta_value, $post_id, $image_desc );
+                    if ( ! is_wp_error( $attachment_id ) && $attachment_id > 0 ) {
+                        $processed_meta_value = $attachment_id;
+                        f12_sync_log(sprintf('Image Sideload Success for "%s". New ID: %d (SKU: %s)', $meta_key, $attachment_id, esc_html($sku)));
+                    } else {
+                        f12_sync_log(sprintf('Image Sideload Failed for "%s". Error: %s (SKU: %s)', $meta_key, is_wp_error($attachment_id) ? $attachment_id->get_error_message() : 'Unknown', esc_html($sku)));
+                        continue; // Skip updating meta on failure
+                    }
+                }
+            }
+
+            // Featured Image special handling
+            if ($meta_key_sanitized === '_thumbnail_id') {
+                if ( !empty($processed_meta_value) && (int) $processed_meta_value > 0 ) {
+                    set_post_thumbnail( $post_id, (int) $processed_meta_value );
+                } else {
+                    delete_post_thumbnail($post_id);
+                }
+            } else { // All other meta
+                if ( $meta_value === null ) {
+                    delete_post_meta($post_id, $meta_key_sanitized);
+                } else {
+                    update_post_meta( $post_id, $meta_key_sanitized, $processed_meta_value );
+                }
+            }
+             if ( ! in_array( $meta_key, $changed_summary['meta'] ) ) $changed_summary['meta'][] = $meta_key;
+        }
+    }
+
+    /**
+     * Sync JetEngine relationships declared in $this->jet_engine_relation_map.
+     */
+    protected function _process_jet_engine_relations( int $child_id, array &$payload, $sku, array &$changed_summary ) {
+        if ( empty( $this->jet_engine_relation_map ) || ! function_exists( 'f12_set_relation_parent_by_sku' ) ) {
+            return;
+        }
+
+        foreach ( $this->jet_engine_relation_map as $payload_key => $cfg ) {
+            if ( ! isset( $payload[ $payload_key ] ) ) {
+                continue;
+            }
+
+            $raw_skus = $payload[ $payload_key ];
+            $parent_sku_list = is_array( $raw_skus ) ? $raw_skus : array_map( 'trim', explode( ',', (string) $raw_skus ) );
+            $parent_sku_list = array_filter( $parent_sku_list );
+
+            // Get the relation object to handle disconnection.
+            $rel = jet_engine()->relations->get_active_relations( $cfg['relation_id'] );
+            if (!$rel) continue;
+
+            if ( empty($parent_sku_list) ) {
+                // Handle disconnection if payload sends an empty list.
+                $rel->delete_rows( null, $child_id );
+                f12_sync_log( "[JetEngine] Disconnected all parents from child={$child_id} due to empty payload." );
+                $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}_disconnected";
+            } else {
+                // Call the high-level helper function to do all the work.
+                $parent_sku = $parent_sku_list[0];
+                $result = f12_set_relation_parent_by_sku( $child_id, $parent_sku, $cfg );
+
+                if ( ! is_wp_error($result) ) {
+                    $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
+                }
+            }
+
+            unset( $payload[ $payload_key ] );
+        }
+    }
 }
 </file>
 

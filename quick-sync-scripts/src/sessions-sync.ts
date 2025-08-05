@@ -9,6 +9,8 @@ const FIELD_MAP = {
 
   /* Custom permalink (Permalink Manager / AIOSEO) */
   session_permalink:   '_custom_uri',
+  _aioseo_description:     '_aioseo_description',
+
 
   /* ── SKU & Status ─────────────────────────────── */
   session_sku:         'sku',
