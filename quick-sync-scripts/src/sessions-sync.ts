@@ -68,6 +68,7 @@ const FIELD_MAP = {
 
   /* ── JetEngine relationship (Series parent SKU) ── */
   series_sku:    'jet_relation_series_parent',
+  series_wp_id:    'jet_relation_series_wp_id',
   series_title:  'jet_relation_series_title',
 };
 

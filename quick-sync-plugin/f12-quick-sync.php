@@ -111,7 +111,8 @@ add_action( 'plugins_loaded', function () {
 	}
 
 	// Already loaded?  Skip (prevents redeclare in tests/CLI).
-	if ( function_exists( 'f12_set_jet_relation' ) ) {
+	// This now checks for the correct, final function name.
+	if ( function_exists( 'f12_set_relation_parent_by_sku' ) ) {
 		return;
 	}
 

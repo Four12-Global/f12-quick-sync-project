@@ -147,12 +147,12 @@ abstract class F12_Quick_Sync_Module_Base {
         $post_id = (int) $post_id_after_save;
     
         // Process remaining fields
-        $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
+                $this->_process_permalink( $post_id, $payload, $sku, $changed_summary );
         $this->_process_taxonomies( $post_id, $payload, $sku, $changed_summary );
         $this->_process_special_fields( $post_id, $payload, $sku, $changed_summary ); // This now handles AIOSEO universally
         $this->_process_jet_engine_relations( $post_id, $payload, $sku, $changed_summary );
         $this->_process_meta_fields( $post_id, $payload, $sku, $changed_summary );
-    
+
         // ---- Prepare and return response ----
         $action = ( 'create' === $mode ) ? 'created' : 'updated';
         // Retrieve the post title for the response
@@ -467,45 +467,39 @@ abstract class F12_Quick_Sync_Module_Base {
      * Sync JetEngine relationships declared in $this->jet_engine_relation_map.
      */
     protected function _process_jet_engine_relations( int $child_id, array &$payload, $sku, array &$changed_summary ) {
-
-        if ( empty( $this->jet_engine_relation_map ) || ! function_exists( 'f12_set_jet_relation' ) ) {
+        if ( empty( $this->jet_engine_relation_map ) || ! function_exists( 'f12_set_relation_parent_by_sku' ) ) {
             return;
         }
 
         foreach ( $this->jet_engine_relation_map as $payload_key => $cfg ) {
-
             if ( ! isset( $payload[ $payload_key ] ) ) {
                 continue;
             }
 
-            $raw      = $payload[ $payload_key ];
-            $sku_list = is_array( $raw ) ? $raw : array_map( 'trim', explode( ',', (string) $raw ) );
-            $parent_ids = [];
+            $raw_skus = $payload[ $payload_key ];
+            $parent_sku_list = is_array( $raw_skus ) ? $raw_skus : array_map( 'trim', explode( ',', (string) $raw_skus ) );
+            $parent_sku_list = array_filter( $parent_sku_list );
 
-            foreach ( array_filter( $sku_list ) as $sku ) {
-                $parent_post = f12_get_post_by_sku( $sku, $cfg['parent_cpt'], $cfg['parent_sku_meta'] );
-                if ( $parent_post ) {
-                    $parent_ids[] = $parent_post->ID;
-                } else {
-                    f12_sync_log( "[JetEngine] Parent SKU '{$sku}' not found for CPT '{$cfg['parent_cpt']}'." );
+            // Get the relation object to handle disconnection.
+            $rel = jet_engine()->relations->get_active_relations( $cfg['relation_id'] );
+            if (!$rel) continue;
+
+            if ( empty($parent_sku_list) ) {
+                // Handle disconnection if payload sends an empty list.
+                $rel->delete_rows( null, $child_id );
+                f12_sync_log( "[JetEngine] Disconnected all parents from child={$child_id} due to empty payload." );
+                $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}_disconnected";
+            } else {
+                // Call the high-level helper function to do all the work.
+                $parent_sku = $parent_sku_list[0];
+                $result = f12_set_relation_parent_by_sku( $child_id, $parent_sku, $cfg );
+
+                if ( ! is_wp_error($result) ) {
+                    $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
                 }
             }
 
-            $result = f12_set_jet_relation(
-                $cfg['relation_id'],
-                $child_id,     // the Session post
-                $parent_ids    // array of Series parents
-            );
-
-            if ( is_wp_error( $result ) ) {
-                f12_sync_log( $result->get_error_message() );
-                // Optional: halt the entire sync if parent is mandatory
-                // return $result;
-            } else {
-                $changed_summary['special'][] = "jet_rel_{$cfg['relation_id']}";
-            }
-
-            unset( $payload[ $payload_key ] );           // prevent duplicate handling
+            unset( $payload[ $payload_key ] );
         }
     }
 }
