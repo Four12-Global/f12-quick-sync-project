@@ -109,9 +109,11 @@ abstract class F12_Quick_Sync_Module_Base {
     
         if ( $wp_id > 0 ) {
             $potential_post = get_post( $wp_id );
+            
+            // --- START of the MODIFICATION ---
             if ( $potential_post && $potential_post->post_type === $this->cpt ) {
+                // This is the original, correct logic for a successful match.
                 $existing_sku = get_post_meta( $potential_post->ID, $this->sku_meta_key, true );
-                // This is the key change: Allow a match if the existing SKU is empty (so we can claim it) or if the SKUs match.
                 if ( empty($existing_sku) || $existing_sku === $sku ) {
                     $post = $potential_post;
                     $mode = 'update';
@@ -123,9 +125,24 @@ abstract class F12_Quick_Sync_Module_Base {
                 } else {
                      f12_sync_log( sprintf( 'wp_id %d provided, but its SKU ("%s") does not match payload SKU ("%s"). Falling back to SKU lookup.', $wp_id, esc_html($existing_sku), esc_html( $sku ) ) );
                 }
+            } else if ( $potential_post && $potential_post->post_type !== $this->cpt ) {
+                // --- THIS IS THE NEW, SAFER LOGIC ---
+                // A post was found, but it's the wrong type. This is a fatal config error.
+                $error_msg = sprintf(
+                    'A post was found for wp_id %d, but its type ("%s") does not match the configured type ("%s") for this endpoint. Please correct the CPT slug in your PHP module.',
+                    $wp_id,
+                    $potential_post->post_type,
+                    $this->cpt
+                );
+                f12_sync_log('[FATAL] ' . $error_msg);
+                // Return a 409 Conflict error, as the payload data conflicts with server configuration.
+                return new WP_Error( 'f12_cpt_mismatch', $error_msg, [ 'status' => 409 ] );
+                // --- END OF THE NEW LOGIC ---
             } else {
-                f12_sync_log( sprintf( 'wp_id %d provided, but post not found or is wrong CPT. Falling back to SKU lookup.', $wp_id ) );
+                // The original fallback for when the wp_id doesn't exist at all.
+                f12_sync_log( sprintf( 'wp_id %d provided, but no post was found. Falling back to SKU lookup.', $wp_id ) );
             }
+            // --- END of the MODIFICATION ---
         }
     
         if ( ! $mode ) {

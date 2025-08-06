@@ -41,6 +41,7 @@ The content is organized as follows:
 
 <directory_structure>
 modules/
+  albums-sync.php
   author-sync.php
   leaders-sync.php
   series-sync.php
@@ -54,6 +55,73 @@ relations.php
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="modules/albums-sync.php">
+<?php
+/**
+ * Quick Sync Module: Albums CPT
+ *
+ * Provides the specific configuration for syncing the 'albums' Custom Post Type.
+ * It inherits all universal processing logic (post lookup, image handling, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Albums_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'albums' CPT.
+     * This function maps the incoming payload from Airtable to the correct
+     * WordPress fields, taxonomies, and meta keys.
+     */
+    protected function init() {
+        // --- 1. Core Configuration ---
+        // Defines the CPT slug, the API endpoint, and the SKU meta key.
+        $this->cpt = 'albums';
+        $this->endpoint_slug = 'albums-sync';
+        $this->sku_meta_key = 'album_sku'; // Convention: CPT_sku
+
+        // --- 2. Core Field Mapping ---
+        // Maps payload keys to core WordPress post fields (wp_posts table).
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_status'  => 'post_status',
+        ];
+
+        // --- 3. Taxonomy Mapping ---
+        // Maps a payload key to a WordPress taxonomy slug. The base class
+        // will automatically create/assign the terms.
+        $this->taxonomy_map = [
+            'worship_artist' => 'worship_artist',
+        ];
+
+        // --- 4. Image/Media Meta Mapping ---
+        // Lists payload keys that correspond to media. The base class uses this
+        // for its URL-sideloading fallback. The primary path (sending a WP ID)
+        // is handled by the generic meta processor.
+        $this->image_meta_map = [
+            '_thumbnail_id',     // The featured image.
+            'chord_sheet_pdf',   // The chord sheet PDF.
+        ];
+
+        // --- 5. Post Content ---
+        // This CPT does not have a main content field, so we set this to null.
+        $this->post_content_key = null;
+        
+        // Note: The simple meta fields from your Airtable script (`apple_music_link`, 
+        // `spotify_link`, `youtube_music_link`, and `chord_sheet_pdf`) do not need
+        // to be explicitly defined here. The base class's `_process_meta_fields` 
+        // method will automatically handle any remaining keys in the payload and
+        // save them as post meta.
+    }
+
+    // No other methods are needed. The F12_Quick_Sync_Module_Base handles everything else.
+}
+</file>
 
 <file path="modules/author-sync.php">
 <?php
@@ -475,6 +543,7 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'series-categories' => 'series-categories',
             'topics'            => 'topics',
             'series-templates'  => 'series-templates',
+            'author-speaker'    => 'author-speaker',
         ];
 
         $this->image_meta_map = [
@@ -484,6 +553,8 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'banner-image',
             'manual1-image',
         ];
+
+        $this->post_content_key = 'post_content';
 
         // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
         $this->jet_engine_relation_map = [

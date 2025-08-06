@@ -9,7 +9,7 @@ const FIELD_MAP = {
 
   /* Custom permalink (Permalink Manager / AIOSEO) */
   session_permalink:   '_custom_uri',
-  _aioseo_description:     '_aioseo_description',
+  _aioseo_description: '_aioseo_description',
 
 
   /* ── SKU & Status ─────────────────────────────── */
@@ -70,7 +70,7 @@ const FIELD_MAP = {
 
   /* ── JetEngine relationship (Series parent SKU) ── */
   series_sku:    'jet_relation_series_parent',
-  series_wp_id:    'jet_relation_series_wp_id',
+  series_wp_id:  'jet_relation_series_wp_id',
   series_title:  'jet_relation_series_title',
 };
 
