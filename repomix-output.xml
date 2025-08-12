@@ -46,6 +46,7 @@ quick-sync-plugin/
     leaders-sync.php
     series-sync.php
     sessions-sync.php
+    worship-sync.php
   vendor/
     .github/
       workflows/
@@ -69,6 +70,8 @@ quick-sync-scripts/
     series-sync.js
     sessions-media.js
     sessions-sync.js
+    worship-media.js
+    worship-sync.js
   src/
     lib/
       media-helpers.ts
@@ -79,6 +82,8 @@ quick-sync-scripts/
     series-sync.ts
     sessions-media.ts
     sessions-sync.ts
+    worship-media.ts
+    worship-sync.ts
   env.d.ts
   package.json
   README.md
@@ -91,6 +96,14 @@ README.md
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="quick-sync-scripts/dist/worship-media.js">
+"use strict";(()=>{var x="API-SYNC";function U(e,i=x){if(!e||!e.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(e).toString("base64")}var c=e=>console.log(`[${new Date().toISOString()}]`,e);async function P(e){let i=new Map;if(e.fields&&Array.isArray(e.fields))for(let d of e.fields)d.id&&d.name&&i.set(d.id,d.name);return i}var R="API-SYNC";async function A(e){var d,u;let i=await fetch(e.url);if(!i.ok)throw new Error(`\u2198 download ${e.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(d=e.filename)!=null?d:"file",contentType:(u=i.headers.get("content-type"))!=null?u:"application/octet-stream",srcUrl:e.url}}async function v(e,i,{blob:d,filename:u,contentType:m},p){c(`Uploading ${u}${p?` for record ${p}`:""} \u2026`);try{let n=await fetch(e,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${u}"`},body:d}),l=await n.json();if(!n.ok||!(l!=null&&l.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(l).slice(0,200)}`);return c(`\u2705 Uploaded ${u} \u2192 ${l.source_url} (wpId: ${l.id})`),{id:String(l.id),url:l.source_url}}catch(n){throw console.error(`\u274C Upload failed ${u}${p?` for record ${p}`:""}: ${n.message}`),n}}async function V(e,i,d,u,m,p){var T,F,I,C,w,_,$;let n=(T=e.getCellValue(i.attachmentField))!=null?T:[],l=(F=e.getCellValue(i.wpIdField))!=null?F:"",b=(I=e.getCellValue(i.wpUrlField))!=null?I:"",h=(C=e.getCellValue(i.airtableCacheField))!=null?C:"",f=(h!=null?h:"").split(",").filter(Boolean),S=i.externalUrlField?(((w=e.getCellValueAsString)==null?void 0:w.call(e,i.externalUrlField))||"").trim():"";if(n.length===0&&S)return{wpIds:null,wpUrls:S,cacheUrls:null,changed:S!==b};if(n.length===0)return l||b||h?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let a=n[0];if(f.includes(a.id)&&l)return c(`\u21A9\uFE0F Reusing ${(_=a.filename)!=null?_:"file"} (wpId: ${l})`),{changed:!1};try{let{blob:o,filename:g,contentType:y}=await A(a),{id:s,url:t}=await v(d,u,{blob:o,filename:g,contentType:y},m);return{wpIds:s,wpUrls:t,cacheUrls:a.id,changed:!0}}catch(o){return p&&p(o),c(`\u26A0\uFE0F  single-upload failed ${a.url}: ${o.message}`),{changed:!1}}}if(i.isMultiple){let a=[];for(let o of n){if(f.includes(o.id)){c(`\u21A9\uFE0F Reusing ${($=o.filename)!=null?$:"file"}\u2026`);continue}try{let{blob:g,filename:y,contentType:s}=await A(o),{id:t,url:r}=await v(d,u,{blob:g,filename:y,contentType:s},m);a.push({id:t,url:r,airtableId:o.id})}catch(g){p&&p(g),c(`\u274C  multi\u2011upload failed ${o.url}: ${g.message}`)}}if(a.length||n.some(o=>f.includes(o.id))){let o=n.filter(s=>f.includes(s.id)).map(s=>s.id),g=l.split(",").filter(Boolean).filter((s,t)=>{var r;return f.includes((r=n[t])==null?void 0:r.id)}),y=b.split(",").filter(Boolean).filter((s,t)=>{var r;return f.includes((r=n[t])==null?void 0:r.id)});return{wpIds:[...g,...a.map(s=>s.id)].join(","),wpUrls:[...y,...a.map(s=>s.url)].join(","),cacheUrls:[...o,...a.map(s=>s.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function N(e,i){var g,y,s;let d=!1,{airtableTable:u,envMediaEndpoints:m,imageFields:p,lastModifiedField:n,publishTimestampField:l,secretName:b=R}=e,{recordId:h,env:f}=i;if(!h)throw new Error("Automation must pass {recordId}.");if(!f||!m[f]){let t=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${t}`)}let S=m[f],T=U(await input.secret(b),b),F=base.getTable(u),I=await P(F),C=[n,l,...p.flatMap(t=>[t.attachmentField,t.wpIdField,t.wpUrlField,t.airtableCacheField])],w=await F.selectRecordAsync(h,{fields:C});if(!w)throw new Error(`Record ${h} not found.`);let _=w.getCellValue(n),$=w.getCellValue(l);if(_&&$&&Date.parse(_)<=Date.parse($)){c("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let a={},o=!1;for(let t of p)try{let r=await V(w,t,S,T,h,E=>{d=!0});r&&r.changed&&(a[t.wpIdField]=(g=r.wpIds)!=null?g:null,a[t.wpUrlField]=(y=r.wpUrls)!=null?y:null,a[t.airtableCacheField]=(s=r.cacheUrls)!=null?s:null,o=!0)}catch(r){d=!0,c(`\u26A0\uFE0F  Error processing field spec "${t.attachmentField}": ${r.message}`)}if(o){d?c("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):a[l]=new Date().toISOString();try{await F.updateRecordAsync(w,a),c("\u2705\xA0Media sync complete & fields updated")}catch(t){let r=t.message,E=r.match(/Field "(.+?)"/);if(E&&E[1]){let M=E[1],k=`Error updating Airtable: The field "${I.get(M)||"Unknown Field"}" (ID: ${M}) could not accept the value provided by the script. Please verify its field type.`;throw c(`\u274C ${k}`),new Error(k)}throw c(`\u274C An unexpected error occurred while updating Airtable: ${r}`),t}}else c("\u2714\xA0No media changes detected \u2013 nothing to write")}var L=input.config(),O={airtableTable:"Worship",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"chord_sheet_attachment",wpIdField:"chord_sheet_wp_id",wpUrlField:"chord_sheet_link",airtableCacheField:"chord_sheet_external",isMultiple:!1}]};N(O,L);})();
+</file>
+
+<file path="quick-sync-scripts/dist/worship-sync.js">
+"use strict";(()=>{var y=i=>console.log(`[${new Date().toISOString()}]`,i),j=["publish","draft","trash","private"],I="API-SYNC",V="last_synced";function D(i,t=I){if(!i||!i.includes(":"))throw new Error(`Secret "${t}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function K(i,t,n){let e=new Set;for(let r in i){let s=i[r];typeof s=="string"?e.add(r):(e.add(s.airtableIdField),s.airtableLinkField&&e.add(s.airtableLinkField))}return e.add("wp_id").add(t).add(n),Array.from(e)}function W(i,t){return t==null?null:Array.isArray(t)?t.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof t=="object"&&t.url?t.url:typeof t=="object"&&t!==null&&"name"in t?t.name:t}function q(i,t){let n=i.parentTable,e={};for(let r in t){let s=t[r];if(typeof s=="string"){let c=i.getCellValue(r);s==="post_status"?e.post_status=c&&c.name?c.name.toLowerCase():typeof c=="string"?c.toLowerCase():null:e[s]=W(r,c);continue}let a=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);a&&(e[s.wpKey]=a)}return e}async function B(i,t,n){let e=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${t}`},body:JSON.stringify(n)}),r=await e.text();if(!e.ok)throw new Error(`HTTP ${e.status}: ${r.slice(0,500)}`);return{data:JSON.parse(r),status:e.status}}async function L(i,t){var m,F,E,T,A,C,v;let{airtableTable:n,fieldMap:e,envEndpoints:r,skuField:s,titleField:a,allowedStatuses:c=j,secretName:w=I}=i;if(!s||!a)throw new Error("quickSync: skuField and titleField are required");let{recordId:g,env:_}=t;if(!g)throw new Error("Automation must pass {recordId}.");if(!_||!r[_]){let R=Object.keys(r).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${R}`)}let b=r[_],h=Math.floor(Date.now()/1e3);y(`Quick-Sync (${n}) start \u2013 epoch ${h}`);let M=await input.secret(w),$=D(M,w),N=base.getTable(n),O=K(e,s,a),l=await N.selectRecordAsync(g,{fields:O});if(!l)throw new Error(`Record ${g} not found in ${n}`);let o=q(l,e);(m=o.sku)!=null||(o.sku=l.getCellValueAsString(s));let d=typeof e[a]=="string"?e[a]:null;d&&((F=o[d])!=null||(o[d]=l.getCellValueAsString(a)||l.name)),o[V]=h;let k=d&&o[d]?o[d]:l.getCellValueAsString(a)||l.name;o.post_status&&!c.includes(o.post_status)&&delete o.post_status;let f={airtableRecordId:l.id,sku:o.sku,wp_id:l.getCellValue("wp_id")||null,fields:o};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),y(`POSTing to ${b}`);let{data:u,status:P}=await B(b,$,f),p=(A=(E=u.term_id)!=null?E:u.post_id)!=null?A:(T=u==null?void 0:u.data)==null?void 0:T.post_id,S=(C=u.action)!=null?C:"unknown",x=(v=u.message)!=null?v:"";output.set("syncStatus",u&&p?"Success":`HTTP_${P}`),output.set("action",S),output.set("message",x),output.set("postTitle",k),output.set("wpPostId",p!=null?p:null),y(`\u2705 WP ${S} \u2013  ${k}`)}var J=input.config(),U={title:"post_title",slug:"post_name",website_status:"post_status",excerpt:"post_excerpt",seo_description:"_aioseo_description",release_date:"post_date",sku:"sku",permalink:"custom_permalink_uri",worship_artist:"worship_artist",topics:"topics",category:"global-categories",featured_image_wp_id:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},chord_sheet_wp_id:{airtableIdField:"chord_sheet_wp_id",wpKey:"chord_sheet_wp_id"},chord_sheet_link:{airtableIdField:"chord_sheet_link",wpKey:"chord_sheet_link"},apple_music_link:"apple_music_link",spotify_link:"spotify_link",youtube_music_link:"youtube_music_link"},H={airtableTable:"Worship",skuField:"sku",titleField:"title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/worship-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/worship-sync"}};L(H,J);})();
+</file>
 
 <file path="quick-sync-plugin/modules/author-sync.php">
 <?php
@@ -470,6 +483,77 @@ class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
 
     // No other methods are needed here. The timezone and AIOSEO logic
     // are now handled automatically by the base class.
+}
+</file>
+
+<file path="quick-sync-plugin/modules/worship-sync.php">
+<?php
+/**
+ * Quick Sync Module: Worship CPT
+ *
+ * Provides the specific configuration for syncing the 'worship' Custom Post Type.
+ * It inherits all universal processing logic (post lookup, image handling, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Worship_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'worship' CPT.
+     * This function maps the incoming payload from Airtable to the correct
+     * WordPress fields, taxonomies, and meta keys.
+     */
+    protected function init() {
+        // --- 1. Core Configuration ---
+        // Defines the CPT slug, the API endpoint, and the SKU meta key.
+        $this->cpt = 'songs';
+        $this->endpoint_slug = 'worship-sync';
+        $this->sku_meta_key = 'sku'; // Convention: CPT_sku
+
+        // --- 2. Core Field Mapping ---
+        // Maps payload keys to core WordPress post fields (wp_posts table).
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_date'    => 'post_date',
+            'post_status'  => 'post_status',
+        ];
+
+        // --- 3. Taxonomy Mapping ---
+        // Maps a payload key to a WordPress taxonomy slug. The base class
+        // will automatically create/assign the terms.
+        $this->taxonomy_map = [
+            'worship_artist' => 'worship-artist',
+            'topics' => 'topics',
+            'global-categories' => 'global-categories',
+        ];
+
+        // --- 4. Image/Media Meta Mapping ---
+        // Lists payload keys that correspond to media. The base class uses this
+        // for its URL-sideloading fallback. The primary path (sending a WP ID)
+        // is handled by the generic meta processor.
+        $this->image_meta_map = [
+            '_thumbnail_id',     // The featured image.
+            'chord_sheet_pdf',   // The chord sheet PDF.
+        ];
+
+        // --- 5. Post Content ---
+        // This CPT does not have a main content field, so we set this to null.
+        $this->post_content_key = null;
+        
+        // Note: The simple meta fields from your Airtable script (`apple_music_link`, 
+        // `spotify_link`, `youtube_music_link`, and `chord_sheet_pdf`) do not need
+        // to be explicitly defined here. The base class's `_process_meta_fields` 
+        // method will automatically handle any remaining keys in the payload and
+        // save them as post meta.
+    }
+
+    // No other methods are needed. The F12_Quick_Sync_Module_Base handles everything else.
 }
 </file>
 
@@ -2817,7 +2901,7 @@ function f12qs_unix_utc( DateTime $dt ): int {
 </file>
 
 <file path="quick-sync-scripts/dist/sessions-media.js">
-"use strict";(()=>{var v="API-SYNC";function k(t,i=v){if(!t||!t.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}var p=t=>console.log(`[${new Date().toISOString()}]`,t),A="API-SYNC";async function E(t){var c,o;let i=await fetch(t.url);if(!i.ok)throw new Error(`\u2198 download ${t.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(c=t.filename)!=null?c:"file",contentType:(o=i.headers.get("content-type"))!=null?o:"application/octet-stream",srcUrl:t.url}}async function U(t,i,{blob:c,filename:o,contentType:m},d){p(`Uploading ${o}${d?` for record ${d}`:""} \u2026`);try{let n=await fetch(t,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${o}"`},body:c}),a=await n.json();if(!n.ok||!(a!=null&&a.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(a).slice(0,200)}`);return p(`\u2705 Uploaded ${o} \u2192 ${a.source_url} (wpId: ${a.id})`),{id:String(a.id),url:a.source_url}}catch(n){throw console.error(`\u274C Upload failed ${o}${d?` for record ${d}`:""}: ${n.message}`),n}}async function x(t,i,c,o,m,d){var I,S,T,w,C,$,_;let n=(I=t.getCellValue(i.attachmentField))!=null?I:[],a=(S=t.getCellValue(i.wpIdField))!=null?S:"",F=(T=t.getCellValue(i.wpUrlField))!=null?T:"",f=(w=t.getCellValue(i.airtableCacheField))!=null?w:"",g=(f!=null?f:"").split(",").filter(Boolean),y=i.externalUrlField?(((C=t.getCellValueAsString)==null?void 0:C.call(t,i.externalUrlField))||"").trim():"";if(n.length===0&&y)return{wpIds:null,wpUrls:y,cacheUrls:null,changed:y!==F};if(n.length===0)return a||F||f?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let s=n[0];if(g.includes(s.id)&&a)return p(`\u21A9\uFE0F Reusing ${($=s.filename)!=null?$:"file"} (wpId: ${a})`),{changed:!1};try{let{blob:l,filename:u,contentType:h}=await E(s),{id:e,url:r}=await U(c,o,{blob:l,filename:u,contentType:h},m);return{wpIds:e,wpUrls:r,cacheUrls:s.id,changed:!0}}catch(l){return d&&d(l),p(`\u26A0\uFE0F  single-upload failed ${s.url}: ${l.message}`),{changed:!1}}}if(i.isMultiple){let s=[];for(let l of n){if(g.includes(l.id)){p(`\u21A9\uFE0F Reusing ${(_=l.filename)!=null?_:"file"}\u2026`);continue}try{let{blob:u,filename:h,contentType:e}=await E(l),{id:r,url:b}=await U(c,o,{blob:u,filename:h,contentType:e},m);s.push({id:r,url:b,airtableId:l.id})}catch(u){d&&d(u),p(`\u274C  multi\u2011upload failed ${l.url}: ${u.message}`)}}if(s.length||n.some(l=>g.includes(l.id))){let l=n.filter(e=>g.includes(e.id)).map(e=>e.id),u=a.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)}),h=F.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)});return{wpIds:[...u,...s.map(e=>e.id)].join(","),wpUrls:[...h,...s.map(e=>e.url)].join(","),cacheUrls:[...l,...s.map(e=>e.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function M(t,i){var l,u,h;let c=!1,{airtableTable:o,envMediaEndpoints:m,imageFields:d,lastModifiedField:n,publishTimestampField:a,secretName:F=A}=t,{recordId:f,env:g}=i;if(!f)throw new Error("Automation must pass {recordId}.");if(!g||!m[g]){let e=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${e}`)}let y=m[g],I=k(await input.secret(F),F),S=base.getTable(o),T=[n,a,...d.flatMap(e=>[e.attachmentField,e.wpIdField,e.wpUrlField,e.airtableCacheField])],w=await S.selectRecordAsync(f,{fields:T});if(!w)throw new Error(`Record ${f} not found.`);let C=w.getCellValue(n),$=w.getCellValue(a);if(C&&$&&Date.parse(C)<=Date.parse($)){p("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let _={},s=!1;for(let e of d)try{let r=await x(w,e,y,I,f,b=>{c=!0});r&&r.changed&&(_[e.wpIdField]=(l=r.wpIds)!=null?l:null,_[e.wpUrlField]=(u=r.wpUrls)!=null?u:null,_[e.airtableCacheField]=(h=r.cacheUrls)!=null?h:null,s=!0)}catch(r){c=!0,p(`\u26A0\uFE0F  ${e.attachmentField}: ${r.message}`)}s?(c?p("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):_[a]=new Date().toISOString(),await S.updateRecordAsync(w,_),p("\u2705\xA0Media sync complete & fields updated")):p("\u2714\xA0No media changes detected \u2013 nothing to write")}var N=input.config(),R={airtableTable:"Sessions",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"pdf_image_1_attachment",wpIdField:"pdf_image_1_wp_id",wpUrlField:"pdf_image_1_link",airtableCacheField:"pdf_image_1_external",isMultiple:!1},{attachmentField:"pdf_image_2_attachment",wpIdField:"pdf_image_2_wp_id",wpUrlField:"pdf_image_2_link",airtableCacheField:"pdf_image_2_external",isMultiple:!1}]};M(R,N);})();
+"use strict";(()=>{var N="API-SYNC";function U(e,i=N){if(!e||!e.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(e).toString("base64")}var c=e=>console.log(`[${new Date().toISOString()}]`,e);async function P(e){let i=new Map;if(e.fields&&Array.isArray(e.fields))for(let d of e.fields)d.id&&d.name&&i.set(d.id,d.name);return i}var R="API-SYNC";async function A(e){var d,p;let i=await fetch(e.url);if(!i.ok)throw new Error(`\u2198 download ${e.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(d=e.filename)!=null?d:"file",contentType:(p=i.headers.get("content-type"))!=null?p:"application/octet-stream",srcUrl:e.url}}async function v(e,i,{blob:d,filename:p,contentType:w},u){c(`Uploading ${p}${u?` for record ${u}`:""} \u2026`);try{let n=await fetch(e,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":w,"Content-Disposition":`attachment; filename="${p}"`},body:d}),r=await n.json();if(!n.ok||!(r!=null&&r.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(r).slice(0,200)}`);return c(`\u2705 Uploaded ${p} \u2192 ${r.source_url} (wpId: ${r.id})`),{id:String(r.id),url:r.source_url}}catch(n){throw console.error(`\u274C Upload failed ${p}${u?` for record ${u}`:""}: ${n.message}`),n}}async function V(e,i,d,p,w,u){var I,b,C,T,h,S,$;let n=(I=e.getCellValue(i.attachmentField))!=null?I:[],r=(b=e.getCellValue(i.wpIdField))!=null?b:"",y=(C=e.getCellValue(i.wpUrlField))!=null?C:"",m=(T=e.getCellValue(i.airtableCacheField))!=null?T:"",f=(m!=null?m:"").split(",").filter(Boolean),F=i.externalUrlField?(((h=e.getCellValueAsString)==null?void 0:h.call(e,i.externalUrlField))||"").trim():"";if(n.length===0&&F)return{wpIds:null,wpUrls:F,cacheUrls:null,changed:F!==y};if(n.length===0)return r||y||m?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let a=n[0];if(f.includes(a.id)&&r)return c(`\u21A9\uFE0F Reusing ${(S=a.filename)!=null?S:"file"} (wpId: ${r})`),{changed:!1};try{let{blob:o,filename:g,contentType:_}=await A(a),{id:s,url:t}=await v(d,p,{blob:o,filename:g,contentType:_},w);return{wpIds:s,wpUrls:t,cacheUrls:a.id,changed:!0}}catch(o){return u&&u(o),c(`\u26A0\uFE0F  single-upload failed ${a.url}: ${o.message}`),{changed:!1}}}if(i.isMultiple){let a=[];for(let o of n){if(f.includes(o.id)){c(`\u21A9\uFE0F Reusing ${($=o.filename)!=null?$:"file"}\u2026`);continue}try{let{blob:g,filename:_,contentType:s}=await A(o),{id:t,url:l}=await v(d,p,{blob:g,filename:_,contentType:s},w);a.push({id:t,url:l,airtableId:o.id})}catch(g){u&&u(g),c(`\u274C  multi\u2011upload failed ${o.url}: ${g.message}`)}}if(a.length||n.some(o=>f.includes(o.id))){let o=n.filter(s=>f.includes(s.id)).map(s=>s.id),g=r.split(",").filter(Boolean).filter((s,t)=>{var l;return f.includes((l=n[t])==null?void 0:l.id)}),_=y.split(",").filter(Boolean).filter((s,t)=>{var l;return f.includes((l=n[t])==null?void 0:l.id)});return{wpIds:[...g,...a.map(s=>s.id)].join(","),wpUrls:[..._,...a.map(s=>s.url)].join(","),cacheUrls:[...o,...a.map(s=>s.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function x(e,i){var g,_,s;let d=!1,{airtableTable:p,envMediaEndpoints:w,imageFields:u,lastModifiedField:n,publishTimestampField:r,secretName:y=R}=e,{recordId:m,env:f}=i;if(!m)throw new Error("Automation must pass {recordId}.");if(!f||!w[f]){let t=Object.keys(w).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${t}`)}let F=w[f],I=U(await input.secret(y),y),b=base.getTable(p),C=await P(b),T=[n,r,...u.flatMap(t=>[t.attachmentField,t.wpIdField,t.wpUrlField,t.airtableCacheField])],h=await b.selectRecordAsync(m,{fields:T});if(!h)throw new Error(`Record ${m} not found.`);let S=h.getCellValue(n),$=h.getCellValue(r);if(S&&$&&Date.parse(S)<=Date.parse($)){c("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let a={},o=!1;for(let t of u)try{let l=await V(h,t,F,I,m,M=>{d=!0});l&&l.changed&&(a[t.wpIdField]=(g=l.wpIds)!=null?g:null,a[t.wpUrlField]=(_=l.wpUrls)!=null?_:null,a[t.airtableCacheField]=(s=l.cacheUrls)!=null?s:null,o=!0)}catch(l){d=!0,c(`\u26A0\uFE0F  Error processing field spec "${t.attachmentField}": ${l.message}`)}if(o){d?c("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):a[r]=new Date().toISOString();try{await b.updateRecordAsync(h,a),c("\u2705\xA0Media sync complete & fields updated")}catch(t){let l=t.message,M=l.match(/Field "(.+?)"/);if(M&&M[1]){let E=M[1],k=`Error updating Airtable: The field "${C.get(E)||"Unknown Field"}" (ID: ${E}) could not accept the value provided by the script. Please verify its field type.`;throw c(`\u274C ${k}`),new Error(k)}throw c(`\u274C An unexpected error occurred while updating Airtable: ${l}`),t}}else c("\u2714\xA0No media changes detected \u2013 nothing to write")}var L=input.config(),O={airtableTable:"Sessions",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"pdf_image_1_attachment",wpIdField:"pdf_image_1_wp_id",wpUrlField:"pdf_image_1_link",airtableCacheField:"pdf_image_1_external",isMultiple:!1},{attachmentField:"pdf_image_2_attachment",wpIdField:"pdf_image_2_wp_id",wpUrlField:"pdf_image_2_link",airtableCacheField:"pdf_image_2_external",isMultiple:!1}]};x(O,L);})();
 </file>
 
 <file path="quick-sync-scripts/src/author-media.ts">
@@ -2833,7 +2917,7 @@ const authorMediaConfig: MediaSyncConfig = {
   // 2. WP Media endpoints per environment
   envMediaEndpoints: {
     prod: 'https://four12global.com/wp-json/wp/v2/media',
-    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
   },
 
   // 3. The fields you use to track media changes
@@ -2975,6 +3059,133 @@ const sessionsMediaConfig: MediaSyncConfig = {
 
 // Fire it off
 mediaSync(sessionsMediaConfig, scriptInput);
+</file>
+
+<file path="quick-sync-scripts/src/worship-media.ts">
+// quick-sync-scripts/src/worship-media.ts
+
+import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+const worshipMediaConfig: MediaSyncConfig = {
+  // 1. Your Airtable table name
+  airtableTable: 'Worship',
+
+  // 2. WP Media endpoints (these are standard and rarely change)
+  envMediaEndpoints: {
+    prod: 'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
+  },
+
+  // 3. The fields you use in Airtable to track media changes
+  lastModifiedField: 'media_last_modified',
+  publishTimestampField: 'media_publish_timestamp',
+
+  // 4. One entry for each media attachment field in your CPT
+  imageFields: [
+    // Entry for the Featured Image
+    {
+      attachmentField:    'featured_image_attachment',
+      wpIdField:          'featured_image_wp_id',
+      wpUrlField:         'featured_image_link',
+      airtableCacheField: 'featured_image_external',
+      isMultiple:         false,
+    },
+    // Entry for the Chord Sheet PDF
+    {
+      attachmentField:    'chord_sheet_attachment',
+      wpIdField:          'chord_sheet_wp_id',
+      wpUrlField:         'chord_sheet_link',
+      airtableCacheField: 'chord_sheet_external',
+      isMultiple:         false, // It's a single PDF attachment
+    },
+  ],
+};
+
+// Pass the scriptInput object to the helper function to run the sync.
+mediaSync(worshipMediaConfig, scriptInput);
+</file>
+
+<file path="quick-sync-scripts/src/worship-sync.ts">
+// quick-sync-scripts/src/worship-sync.ts
+
+import { quickSync, FieldMap } from './lib/sync-helpers';
+
+// This is the single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+// The FIELD_MAP is the heart of the configuration.
+// It maps 'Airtable Field Name' to the 'WordPress Payload Key'.
+const WORSHIP_FIELD_MAP: FieldMap = {
+  /* --- Core WP Fields --- */
+  'title': 'post_title',
+  'slug': 'post_name',
+  'website_status': 'post_status',
+  'excerpt': 'post_excerpt',
+  'seo_description': '_aioseo_description',
+  'release_date': 'post_date',
+
+  /* --- SKU (Essential for de-duplication) --- */
+  'sku': 'sku',
+
+  /* Custom permalink (Permalink Manager) */
+  permalink:  'custom_permalink_uri',
+
+  /* --- Taxonomy --- */
+  // Maps the 'worship_artist' field in Airtable to the 'worship_artist' taxonomy in WordPress.
+  'worship_artist': 'worship_artist',
+  'topics': 'topics',
+  'category': 'global-categories',
+
+  /* --- Media Fields (using the IDs from the media script) --- */
+  'featured_image_wp_id': {
+    airtableIdField: 'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id', // This is the special WordPress key for the featured image.
+  },
+
+  // 1. Send the ID to a meta field for backend reference
+  'chord_sheet_wp_id': { // The Airtable field containing the ID(s)
+    airtableIdField: 'chord_sheet_wp_id',
+    wpKey: 'chord_sheet_wp_id', // Save it to a WP meta field with the same name
+  },
+
+  // 2. Send the URL to a separate meta field for the frontend
+  'chord_sheet_link': { // The Airtable field containing the URL(s)
+    airtableIdField: 'chord_sheet_link', // Use the link field as the source
+    wpKey: 'chord_sheet_link', // Save it to a clear, distinct WP meta field
+  },
+
+    /* --- Simple Meta Fields (Links) --- */
+    // These will be saved directly as post meta in WordPress.
+    'apple_music_link': 'apple_music_link',
+    'spotify_link': 'spotify_link',
+    'youtube_music_link': 'youtube_music_link',
+};
+
+const worshipSyncConfig = {
+  /* ----- Airtable table name ----- */
+  airtableTable: 'Worship',
+
+  /* ----- Airtable field that holds your permanent SKU & title ----- */
+  skuField: 'sku',
+  titleField: 'title',
+  
+
+  /* ----- Use the field map defined above ----- */
+  fieldMap: WORSHIP_FIELD_MAP,
+
+  /* ----- Define the production and staging endpoints for this CPT ----- */
+  envEndpoints: {
+    prod: 'https://four12global.com/wp-json/four12/v1/worship-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/worship-sync',
+  },
+};
+
+// Pass the config and input to the helper function to run the sync.
+quickSync(worshipSyncConfig, scriptInput);
 </file>
 
 <file path="quick-sync-scripts/env.d.ts">
@@ -3490,10 +3701,6 @@ All of these pieces must work together:
 - **`relations.php` (The Specialist):** Contains the `f12_set_relation_parent_by_sku` function that knows how to talk to the JetEngine API.
 - **`f12-quick-sync.php` (The Loader):** The `plugins_loaded` action hook at the bottom correctly checks for `function_exists('f12_set_relation_parent_by_sku')` before including `relations.php`. This ensures the specialist is available when the orchestrator needs it.
 - **`core-helpers.php` (The Foundation):** Provides the essential `f12_get_post_by_sku()` function, which is critical for converting the parent's SKU into a usable WordPress Post ID.
-</file>
-
-<file path="quick-sync-scripts/dist/author-media.js">
-"use strict";(()=>{var v="API-SYNC";function I(t,i=v){if(!t||!t.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}var p=t=>console.log(`[${new Date().toISOString()}]`,t),A="API-SYNC";async function k(t){var c,o;let i=await fetch(t.url);if(!i.ok)throw new Error(`\u2198 download ${t.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(c=t.filename)!=null?c:"file",contentType:(o=i.headers.get("content-type"))!=null?o:"application/octet-stream",srcUrl:t.url}}async function U(t,i,{blob:c,filename:o,contentType:m},d){p(`Uploading ${o}${d?` for record ${d}`:""} \u2026`);try{let n=await fetch(t,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${o}"`},body:c}),s=await n.json();if(!n.ok||!(s!=null&&s.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(s).slice(0,200)}`);return p(`\u2705 Uploaded ${o} \u2192 ${s.source_url} (wpId: ${s.id})`),{id:String(s.id),url:s.source_url}}catch(n){throw console.error(`\u274C Upload failed ${o}${d?` for record ${d}`:""}: ${n.message}`),n}}async function x(t,i,c,o,m,d){var _,$,E,w,C,T,h;let n=(_=t.getCellValue(i.attachmentField))!=null?_:[],s=($=t.getCellValue(i.wpIdField))!=null?$:"",F=(E=t.getCellValue(i.wpUrlField))!=null?E:"",f=(w=t.getCellValue(i.airtableCacheField))!=null?w:"",g=(f!=null?f:"").split(",").filter(Boolean),S=i.externalUrlField?(((C=t.getCellValueAsString)==null?void 0:C.call(t,i.externalUrlField))||"").trim():"";if(n.length===0&&S)return{wpIds:null,wpUrls:S,cacheUrls:null,changed:S!==F};if(n.length===0)return s||F||f?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let l=n[0];if(g.includes(l.id)&&s)return p(`\u21A9\uFE0F Reusing ${(T=l.filename)!=null?T:"file"} (wpId: ${s})`),{changed:!1};try{let{blob:a,filename:u,contentType:y}=await k(l),{id:e,url:r}=await U(c,o,{blob:a,filename:u,contentType:y},m);return{wpIds:e,wpUrls:r,cacheUrls:l.id,changed:!0}}catch(a){return d&&d(a),p(`\u26A0\uFE0F  single-upload failed ${l.url}: ${a.message}`),{changed:!1}}}if(i.isMultiple){let l=[];for(let a of n){if(g.includes(a.id)){p(`\u21A9\uFE0F Reusing ${(h=a.filename)!=null?h:"file"}\u2026`);continue}try{let{blob:u,filename:y,contentType:e}=await k(a),{id:r,url:b}=await U(c,o,{blob:u,filename:y,contentType:e},m);l.push({id:r,url:b,airtableId:a.id})}catch(u){d&&d(u),p(`\u274C  multi\u2011upload failed ${a.url}: ${u.message}`)}}if(l.length||n.some(a=>g.includes(a.id))){let a=n.filter(e=>g.includes(e.id)).map(e=>e.id),u=s.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)}),y=F.split(",").filter(Boolean).filter((e,r)=>{var b;return g.includes((b=n[r])==null?void 0:b.id)});return{wpIds:[...u,...l.map(e=>e.id)].join(","),wpUrls:[...y,...l.map(e=>e.url)].join(","),cacheUrls:[...a,...l.map(e=>e.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function M(t,i){var a,u,y;let c=!1,{airtableTable:o,envMediaEndpoints:m,imageFields:d,lastModifiedField:n,publishTimestampField:s,secretName:F=A}=t,{recordId:f,env:g}=i;if(!f)throw new Error("Automation must pass {recordId}.");if(!g||!m[g]){let e=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${e}`)}let S=m[g],_=I(await input.secret(F),F),$=base.getTable(o),E=[n,s,...d.flatMap(e=>[e.attachmentField,e.wpIdField,e.wpUrlField,e.airtableCacheField])],w=await $.selectRecordAsync(f,{fields:E});if(!w)throw new Error(`Record ${f} not found.`);let C=w.getCellValue(n),T=w.getCellValue(s);if(C&&T&&Date.parse(C)<=Date.parse(T)){p("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let h={},l=!1;for(let e of d)try{let r=await x(w,e,S,_,f,b=>{c=!0});r&&r.changed&&(h[e.wpIdField]=(a=r.wpIds)!=null?a:null,h[e.wpUrlField]=(u=r.wpUrls)!=null?u:null,h[e.airtableCacheField]=(y=r.cacheUrls)!=null?y:null,l=!0)}catch(r){c=!0,p(`\u26A0\uFE0F  ${e.attachmentField}: ${r.message}`)}l?(c?p("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):h[s]=new Date().toISOString(),await $.updateRecordAsync(w,h),p("\u2705\xA0Media sync complete & fields updated")):p("\u2714\xA0No media changes detected \u2013 nothing to write")}var N={airtableTable:"author-speaker",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"profile_image_attachment",wpIdField:"profile_image_wp_id",wpUrlField:"profile_image_link",airtableCacheField:"profile_image_external",isMultiple:!1}]},R=input.config();M(N,R);})();
 </file>
 
 <file path="quick-sync-scripts/dist/series-sync.js">
@@ -5184,8 +5391,12 @@ function f12_set_relation_parent_by_sku( int $child_id, string $parent_sku, arra
 }
 </file>
 
+<file path="quick-sync-scripts/dist/author-media.js">
+"use strict";(()=>{var x="API-SYNC";function A(e,i=x){if(!e||!e.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(e).toString("base64")}var c=e=>console.log(`[${new Date().toISOString()}]`,e);async function P(e){let i=new Map;if(e.fields&&Array.isArray(e.fields))for(let d of e.fields)d.id&&d.name&&i.set(d.id,d.name);return i}var R="API-SYNC";async function U(e){var d,u;let i=await fetch(e.url);if(!i.ok)throw new Error(`\u2198 download ${e.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(d=e.filename)!=null?d:"file",contentType:(u=i.headers.get("content-type"))!=null?u:"application/octet-stream",srcUrl:e.url}}async function v(e,i,{blob:d,filename:u,contentType:w},p){c(`Uploading ${u}${p?` for record ${p}`:""} \u2026`);try{let n=await fetch(e,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":w,"Content-Disposition":`attachment; filename="${u}"`},body:d}),l=await n.json();if(!n.ok||!(l!=null&&l.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(l).slice(0,200)}`);return c(`\u2705 Uploaded ${u} \u2192 ${l.source_url} (wpId: ${l.id})`),{id:String(l.id),url:l.source_url}}catch(n){throw console.error(`\u274C Upload failed ${u}${p?` for record ${p}`:""}: ${n.message}`),n}}async function V(e,i,d,u,w,p){var E,F,I,C,h,$,T;let n=(E=e.getCellValue(i.attachmentField))!=null?E:[],l=(F=e.getCellValue(i.wpIdField))!=null?F:"",b=(I=e.getCellValue(i.wpUrlField))!=null?I:"",m=(C=e.getCellValue(i.airtableCacheField))!=null?C:"",f=(m!=null?m:"").split(",").filter(Boolean),S=i.externalUrlField?(((h=e.getCellValueAsString)==null?void 0:h.call(e,i.externalUrlField))||"").trim():"";if(n.length===0&&S)return{wpIds:null,wpUrls:S,cacheUrls:null,changed:S!==b};if(n.length===0)return l||b||m?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let s=n[0];if(f.includes(s.id)&&l)return c(`\u21A9\uFE0F Reusing ${($=s.filename)!=null?$:"file"} (wpId: ${l})`),{changed:!1};try{let{blob:o,filename:g,contentType:y}=await U(s),{id:a,url:t}=await v(d,u,{blob:o,filename:g,contentType:y},w);return{wpIds:a,wpUrls:t,cacheUrls:s.id,changed:!0}}catch(o){return p&&p(o),c(`\u26A0\uFE0F  single-upload failed ${s.url}: ${o.message}`),{changed:!1}}}if(i.isMultiple){let s=[];for(let o of n){if(f.includes(o.id)){c(`\u21A9\uFE0F Reusing ${(T=o.filename)!=null?T:"file"}\u2026`);continue}try{let{blob:g,filename:y,contentType:a}=await U(o),{id:t,url:r}=await v(d,u,{blob:g,filename:y,contentType:a},w);s.push({id:t,url:r,airtableId:o.id})}catch(g){p&&p(g),c(`\u274C  multi\u2011upload failed ${o.url}: ${g.message}`)}}if(s.length||n.some(o=>f.includes(o.id))){let o=n.filter(a=>f.includes(a.id)).map(a=>a.id),g=l.split(",").filter(Boolean).filter((a,t)=>{var r;return f.includes((r=n[t])==null?void 0:r.id)}),y=b.split(",").filter(Boolean).filter((a,t)=>{var r;return f.includes((r=n[t])==null?void 0:r.id)});return{wpIds:[...g,...s.map(a=>a.id)].join(","),wpUrls:[...y,...s.map(a=>a.url)].join(","),cacheUrls:[...o,...s.map(a=>a.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function N(e,i){var g,y,a;let d=!1,{airtableTable:u,envMediaEndpoints:w,imageFields:p,lastModifiedField:n,publishTimestampField:l,secretName:b=R}=e,{recordId:m,env:f}=i;if(!m)throw new Error("Automation must pass {recordId}.");if(!f||!w[f]){let t=Object.keys(w).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${t}`)}let S=w[f],E=A(await input.secret(b),b),F=base.getTable(u),I=await P(F),C=[n,l,...p.flatMap(t=>[t.attachmentField,t.wpIdField,t.wpUrlField,t.airtableCacheField])],h=await F.selectRecordAsync(m,{fields:C});if(!h)throw new Error(`Record ${m} not found.`);let $=h.getCellValue(n),T=h.getCellValue(l);if($&&T&&Date.parse($)<=Date.parse(T)){c("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let s={},o=!1;for(let t of p)try{let r=await V(h,t,S,E,m,_=>{d=!0});r&&r.changed&&(s[t.wpIdField]=(g=r.wpIds)!=null?g:null,s[t.wpUrlField]=(y=r.wpUrls)!=null?y:null,s[t.airtableCacheField]=(a=r.cacheUrls)!=null?a:null,o=!0)}catch(r){d=!0,c(`\u26A0\uFE0F  Error processing field spec "${t.attachmentField}": ${r.message}`)}if(o){d?c("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):s[l]=new Date().toISOString();try{await F.updateRecordAsync(h,s),c("\u2705\xA0Media sync complete & fields updated")}catch(t){let r=t.message,_=r.match(/Field "(.+?)"/);if(_&&_[1]){let M=_[1],k=`Error updating Airtable: The field "${I.get(M)||"Unknown Field"}" (ID: ${M}) could not accept the value provided by the script. Please verify its field type.`;throw c(`\u274C ${k}`),new Error(k)}throw c(`\u274C An unexpected error occurred while updating Airtable: ${r}`),t}}else c("\u2714\xA0No media changes detected \u2013 nothing to write")}var L={airtableTable:"author-speaker",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"profile_image_attachment",wpIdField:"profile_image_wp_id",wpUrlField:"profile_image_link",airtableCacheField:"profile_image_external",isMultiple:!1}]},O=input.config();N(L,O);})();
+</file>
+
 <file path="quick-sync-scripts/dist/series-media.js">
-"use strict";(()=>{var v="API-SYNC";function E(t,i=v){if(!t||!t.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(t).toString("base64")}var p=t=>console.log(`[${new Date().toISOString()}]`,t),A="API-SYNC";async function k(t){var c,o;let i=await fetch(t.url);if(!i.ok)throw new Error(`\u2198 download ${t.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(c=t.filename)!=null?c:"file",contentType:(o=i.headers.get("content-type"))!=null?o:"application/octet-stream",srcUrl:t.url}}async function U(t,i,{blob:c,filename:o,contentType:m},d){p(`Uploading ${o}${d?` for record ${d}`:""} \u2026`);try{let n=await fetch(t,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":m,"Content-Disposition":`attachment; filename="${o}"`},body:c}),a=await n.json();if(!n.ok||!(a!=null&&a.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(a).slice(0,200)}`);return p(`\u2705 Uploaded ${o} \u2192 ${a.source_url} (wpId: ${a.id})`),{id:String(a.id),url:a.source_url}}catch(n){throw console.error(`\u274C Upload failed ${o}${d?` for record ${d}`:""}: ${n.message}`),n}}async function x(t,i,c,o,m,d){var I,S,T,w,C,$,h;let n=(I=t.getCellValue(i.attachmentField))!=null?I:[],a=(S=t.getCellValue(i.wpIdField))!=null?S:"",b=(T=t.getCellValue(i.wpUrlField))!=null?T:"",f=(w=t.getCellValue(i.airtableCacheField))!=null?w:"",g=(f!=null?f:"").split(",").filter(Boolean),F=i.externalUrlField?(((C=t.getCellValueAsString)==null?void 0:C.call(t,i.externalUrlField))||"").trim():"";if(n.length===0&&F)return{wpIds:null,wpUrls:F,cacheUrls:null,changed:F!==b};if(n.length===0)return a||b||f?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let s=n[0];if(g.includes(s.id)&&a)return p(`\u21A9\uFE0F Reusing ${($=s.filename)!=null?$:"file"} (wpId: ${a})`),{changed:!1};try{let{blob:l,filename:u,contentType:y}=await k(s),{id:e,url:r}=await U(c,o,{blob:l,filename:u,contentType:y},m);return{wpIds:e,wpUrls:r,cacheUrls:s.id,changed:!0}}catch(l){return d&&d(l),p(`\u26A0\uFE0F  single-upload failed ${s.url}: ${l.message}`),{changed:!1}}}if(i.isMultiple){let s=[];for(let l of n){if(g.includes(l.id)){p(`\u21A9\uFE0F Reusing ${(h=l.filename)!=null?h:"file"}\u2026`);continue}try{let{blob:u,filename:y,contentType:e}=await k(l),{id:r,url:_}=await U(c,o,{blob:u,filename:y,contentType:e},m);s.push({id:r,url:_,airtableId:l.id})}catch(u){d&&d(u),p(`\u274C  multi\u2011upload failed ${l.url}: ${u.message}`)}}if(s.length||n.some(l=>g.includes(l.id))){let l=n.filter(e=>g.includes(e.id)).map(e=>e.id),u=a.split(",").filter(Boolean).filter((e,r)=>{var _;return g.includes((_=n[r])==null?void 0:_.id)}),y=b.split(",").filter(Boolean).filter((e,r)=>{var _;return g.includes((_=n[r])==null?void 0:_.id)});return{wpIds:[...u,...s.map(e=>e.id)].join(","),wpUrls:[...y,...s.map(e=>e.url)].join(","),cacheUrls:[...l,...s.map(e=>e.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function M(t,i){var l,u,y;let c=!1,{airtableTable:o,envMediaEndpoints:m,imageFields:d,lastModifiedField:n,publishTimestampField:a,secretName:b=A}=t,{recordId:f,env:g}=i;if(!f)throw new Error("Automation must pass {recordId}.");if(!g||!m[g]){let e=Object.keys(m).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${e}`)}let F=m[g],I=E(await input.secret(b),b),S=base.getTable(o),T=[n,a,...d.flatMap(e=>[e.attachmentField,e.wpIdField,e.wpUrlField,e.airtableCacheField])],w=await S.selectRecordAsync(f,{fields:T});if(!w)throw new Error(`Record ${f} not found.`);let C=w.getCellValue(n),$=w.getCellValue(a);if(C&&$&&Date.parse(C)<=Date.parse($)){p("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let h={},s=!1;for(let e of d)try{let r=await x(w,e,F,I,f,_=>{c=!0});r&&r.changed&&(h[e.wpIdField]=(l=r.wpIds)!=null?l:null,h[e.wpUrlField]=(u=r.wpUrls)!=null?u:null,h[e.airtableCacheField]=(y=r.cacheUrls)!=null?y:null,s=!0)}catch(r){c=!0,p(`\u26A0\uFE0F  ${e.attachmentField}: ${r.message}`)}s?(c?p("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):h[a]=new Date().toISOString(),await S.updateRecordAsync(w,h),p("\u2705\xA0Media sync complete & fields updated")):p("\u2714\xA0No media changes detected \u2013 nothing to write")}var N=input.config(),R={airtableTable:"Series",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"primary_cta_image_attachment",wpIdField:"primary_cta_image_wp_id",wpUrlField:"primary_cta_image_link",airtableCacheField:"primary_cta_image_external",isMultiple:!1}]};M(R,N);})();
+"use strict";(()=>{var N="API-SYNC";function U(e,i=N){if(!e||!e.includes(":"))throw new Error(`Secret "${i}" must be "user:app-password".`);return Buffer.from(e).toString("base64")}var c=e=>console.log(`[${new Date().toISOString()}]`,e);async function P(e){let i=new Map;if(e.fields&&Array.isArray(e.fields))for(let d of e.fields)d.id&&d.name&&i.set(d.id,d.name);return i}var R="API-SYNC";async function A(e){var d,u;let i=await fetch(e.url);if(!i.ok)throw new Error(`\u2198 download ${e.url} \u2192 HTTP ${i.status}`);return{blob:await i.blob(),filename:(d=e.filename)!=null?d:"file",contentType:(u=i.headers.get("content-type"))!=null?u:"application/octet-stream",srcUrl:e.url}}async function v(e,i,{blob:d,filename:u,contentType:w},p){c(`Uploading ${u}${p?` for record ${p}`:""} \u2026`);try{let n=await fetch(e,{method:"POST",headers:{Authorization:`Basic ${i}`,"Content-Type":w,"Content-Disposition":`attachment; filename="${u}"`},body:d}),r=await n.json();if(!n.ok||!(r!=null&&r.id))throw new Error(`\u2197 WP upload failed ${n.status}: ${JSON.stringify(r).slice(0,200)}`);return c(`\u2705 Uploaded ${u} \u2192 ${r.source_url} (wpId: ${r.id})`),{id:String(r.id),url:r.source_url}}catch(n){throw console.error(`\u274C Upload failed ${u}${p?` for record ${p}`:""}: ${n.message}`),n}}async function V(e,i,d,u,w,p){var I,_,C,T,h,S,$;let n=(I=e.getCellValue(i.attachmentField))!=null?I:[],r=(_=e.getCellValue(i.wpIdField))!=null?_:"",b=(C=e.getCellValue(i.wpUrlField))!=null?C:"",m=(T=e.getCellValue(i.airtableCacheField))!=null?T:"",f=(m!=null?m:"").split(",").filter(Boolean),F=i.externalUrlField?(((h=e.getCellValueAsString)==null?void 0:h.call(e,i.externalUrlField))||"").trim():"";if(n.length===0&&F)return{wpIds:null,wpUrls:F,cacheUrls:null,changed:F!==b};if(n.length===0)return r||b||m?{wpIds:null,wpUrls:null,cacheUrls:null,changed:!0}:{changed:!1};if(!i.isMultiple){let a=n[0];if(f.includes(a.id)&&r)return c(`\u21A9\uFE0F Reusing ${(S=a.filename)!=null?S:"file"} (wpId: ${r})`),{changed:!1};try{let{blob:o,filename:g,contentType:y}=await A(a),{id:s,url:t}=await v(d,u,{blob:o,filename:g,contentType:y},w);return{wpIds:s,wpUrls:t,cacheUrls:a.id,changed:!0}}catch(o){return p&&p(o),c(`\u26A0\uFE0F  single-upload failed ${a.url}: ${o.message}`),{changed:!1}}}if(i.isMultiple){let a=[];for(let o of n){if(f.includes(o.id)){c(`\u21A9\uFE0F Reusing ${($=o.filename)!=null?$:"file"}\u2026`);continue}try{let{blob:g,filename:y,contentType:s}=await A(o),{id:t,url:l}=await v(d,u,{blob:g,filename:y,contentType:s},w);a.push({id:t,url:l,airtableId:o.id})}catch(g){p&&p(g),c(`\u274C  multi\u2011upload failed ${o.url}: ${g.message}`)}}if(a.length||n.some(o=>f.includes(o.id))){let o=n.filter(s=>f.includes(s.id)).map(s=>s.id),g=r.split(",").filter(Boolean).filter((s,t)=>{var l;return f.includes((l=n[t])==null?void 0:l.id)}),y=b.split(",").filter(Boolean).filter((s,t)=>{var l;return f.includes((l=n[t])==null?void 0:l.id)});return{wpIds:[...g,...a.map(s=>s.id)].join(","),wpUrls:[...y,...a.map(s=>s.url)].join(","),cacheUrls:[...o,...a.map(s=>s.airtableId)].join(","),changed:!0}}return{changed:!1}}return{changed:!1}}async function x(e,i){var g,y,s;let d=!1,{airtableTable:u,envMediaEndpoints:w,imageFields:p,lastModifiedField:n,publishTimestampField:r,secretName:b=R}=e,{recordId:m,env:f}=i;if(!m)throw new Error("Automation must pass {recordId}.");if(!f||!w[f]){let t=Object.keys(w).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${t}`)}let F=w[f],I=U(await input.secret(b),b),_=base.getTable(u),C=await P(_),T=[n,r,...p.flatMap(t=>[t.attachmentField,t.wpIdField,t.wpUrlField,t.airtableCacheField])],h=await _.selectRecordAsync(m,{fields:T});if(!h)throw new Error(`Record ${m} not found.`);let S=h.getCellValue(n),$=h.getCellValue(r);if(S&&$&&Date.parse(S)<=Date.parse($)){c("\u23ED\xA0Images unchanged since last sync \u2013 skipping");return}let a={},o=!1;for(let t of p)try{let l=await V(h,t,F,I,m,E=>{d=!0});l&&l.changed&&(a[t.wpIdField]=(g=l.wpIds)!=null?g:null,a[t.wpUrlField]=(y=l.wpUrls)!=null?y:null,a[t.airtableCacheField]=(s=l.cacheUrls)!=null?s:null,o=!0)}catch(l){d=!0,c(`\u26A0\uFE0F  Error processing field spec "${t.attachmentField}": ${l.message}`)}if(o){d?c("\u26A0\uFE0F  Skipping timestamp because at least one upload failed"):a[r]=new Date().toISOString();try{await _.updateRecordAsync(h,a),c("\u2705\xA0Media sync complete & fields updated")}catch(t){let l=t.message,E=l.match(/Field "(.+?)"/);if(E&&E[1]){let M=E[1],k=`Error updating Airtable: The field "${C.get(M)||"Unknown Field"}" (ID: ${M}) could not accept the value provided by the script. Please verify its field type.`;throw c(`\u274C ${k}`),new Error(k)}throw c(`\u274C An unexpected error occurred while updating Airtable: ${l}`),t}}else c("\u2714\xA0No media changes detected \u2013 nothing to write")}var L=input.config(),O={airtableTable:"Series",envMediaEndpoints:{prod:"https://four12global.com/wp-json/wp/v2/media",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media"},lastModifiedField:"media_last_modified",publishTimestampField:"media_publish_timestamp",imageFields:[{attachmentField:"featured_image_attachment",wpIdField:"featured_image_wp_id",wpUrlField:"featured_image_link",airtableCacheField:"featured_image_external",isMultiple:!1},{attachmentField:"banner_image_attachment",wpIdField:"banner_image_wp_id",wpUrlField:"banner_image_link",airtableCacheField:"banner_image_external",isMultiple:!1},{attachmentField:"listing_image_attachment",wpIdField:"listing_image_wp_id",wpUrlField:"listing_image_link",airtableCacheField:"listing_image_external",isMultiple:!1},{attachmentField:"no_words_image_attachment",wpIdField:"no_words_image_wp_id",wpUrlField:"no_words_image_link",airtableCacheField:"no_words_image_external",isMultiple:!1},{attachmentField:"primary_cta_image_attachment",wpIdField:"primary_cta_image_wp_id",wpUrlField:"primary_cta_image_link",airtableCacheField:"primary_cta_image_external",isMultiple:!1}]};x(O,L);})();
 </file>
 
 <file path="quick-sync-scripts/src/lib/media-helpers.ts">
@@ -5213,6 +5424,23 @@ import { buildBasicAuth } from './sync-helpers';          // already exists
 /* =========  Small helpers ========= */
 const log = (msg: unknown) =>
   console.log(`[${new Date().toISOString()}]`, msg);  // ← identical to sync-helpers
+
+/**
+ * Fetches table schema to create a map of Field ID -> Field Name
+ * for improved error logging.
+ */
+async function buildFieldIdToNameMap(table: any): Promise<Map<string, string>> {
+  const idToNameMap = new Map<string, string>();
+  // The table object has a 'fields' property which is an array of field objects
+  if (table.fields && Array.isArray(table.fields)) {
+    for (const field of table.fields) {
+      if (field.id && field.name) {
+        idToNameMap.set(field.id, field.name);
+      }
+    }
+  }
+  return idToNameMap;
+}
 
 /* =========  Types  ========= */
 export interface ImageFieldConfig {
@@ -5395,18 +5623,20 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
   } = cfg;
 
   /* —— Inputs —— */
-  // Use the passed-in inputConfig object, just like in quickSync
   const { recordId, env } = inputConfig;
   if (!recordId) throw new Error('Automation must pass {recordId}.');
-  // The same safe check for the 'env' variable
   if (!env || !envMediaEndpoints[env]) {
     const availableEnvs = Object.keys(envMediaEndpoints).join(', ');
     throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
   }
+
   const wpEndpoint = envMediaEndpoints[env];
   const basicAuth  = buildBasicAuth(await input.secret(secretName), secretName);
 
   const table  = base.getTable(airtableTable);
+  // --- NEW: Build the decoder map ---
+  const fieldIdToNameMap = await buildFieldIdToNameMap(table);
+  // ------------------------------------
   const fields = [
     lastModifiedField,
     publishTimestampField,
@@ -5443,8 +5673,7 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
       }
     } catch (err) {
       hadErrors = true;
-      log(`⚠️  ${spec.attachmentField}: ${(err as Error).message}`);
-      // do NOT touch fields on error – leave stale values
+      log(`⚠️  Error processing field spec "${spec.attachmentField}": ${(err as Error).message}`);
     }
   }
 
@@ -5454,8 +5683,24 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
     } else {
       log('⚠️  Skipping timestamp because at least one upload failed');
     }
-    await table.updateRecordAsync(rec, updates);
-    log('✅ Media sync complete & fields updated');
+    try {
+      await table.updateRecordAsync(rec, updates);
+      log('✅ Media sync complete & fields updated');
+    } catch (err) {
+      const errorMessage = (err as Error).message;
+      // --- NEW: Enhanced Error Logging ---
+      const fieldIdMatch = errorMessage.match(/Field "(.+?)"/);
+      if (fieldIdMatch && fieldIdMatch[1]) {
+        const fieldId = fieldIdMatch[1];
+        const fieldName = fieldIdToNameMap.get(fieldId) || 'Unknown Field';
+        const enhancedMessage = `Error updating Airtable: The field "${fieldName}" (ID: ${fieldId}) could not accept the value provided by the script. Please verify its field type.`;
+        log(`❌ ${enhancedMessage}`);
+        throw new Error(enhancedMessage);
+      }
+      log(`❌ An unexpected error occurred while updating Airtable: ${errorMessage}`);
+      throw err;
+      // ------------------------------------
+    }
   } else {
     log('✔ No media changes detected – nothing to write');
   }
@@ -5608,6 +5853,10 @@ add_action( 'plugins_loaded', function () {
 }, 20 ); // priority 20 : JetEngine boots at 10, so we're safely after it
 </file>
 
+<file path="quick-sync-scripts/dist/sessions-sync.js">
+"use strict";(()=>{var m=i=>console.log(`[${new Date().toISOString()}]`,i),K=["publish","draft","trash","private"],I="API-SYNC",R="last_synced";function V(i,e=I){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function D(i,e,n){let t=new Set;for(let o in i){let s=i[o];typeof s=="string"?t.add(o):(t.add(s.airtableIdField),s.airtableLinkField&&t.add(s.airtableLinkField))}return t.add("wp_id").add(e).add(n),Array.from(t)}function q(i,e){return e==null?null:Array.isArray(e)?e.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function B(i,e){let n=i.parentTable,t={};for(let o in e){let s=e[o];if(typeof s=="string"){let d=i.getCellValue(o);s==="post_status"?t.post_status=d&&d.name?d.name.toLowerCase():typeof d=="string"?d.toLowerCase():null:t[s]=q(o,d);continue}let l=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);l&&(t[s.wpKey]=l)}return t}async function J(i,e,n){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(n)}),o=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${o.slice(0,500)}`);return{data:JSON.parse(o),status:t.status}}async function C(i,e){var S,h,E,T,L,v,A;let{airtableTable:n,fieldMap:t,envEndpoints:o,skuField:s,titleField:l,allowedStatuses:d=K,secretName:b=I}=i;if(!s||!l)throw new Error("quickSync: skuField and titleField are required");let{recordId:u,env:g}=e;if(!u)throw new Error("Automation must pass {recordId}.");if(!g||!o[g]){let P=Object.keys(o).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${P}`)}let k=o[g],y=Math.floor(Date.now()/1e3);m(`Quick-Sync (${n}) start \u2013 epoch ${y}`);let $=await input.secret(b),M=V($,b),j=base.getTable(n),N=D(t,s,l),r=await j.selectRecordAsync(u,{fields:N});if(!r)throw new Error(`Record ${u} not found in ${n}`);let a=B(r,t);(S=a.sku)!=null||(a.sku=r.getCellValueAsString(s));let c=typeof t[l]=="string"?t[l]:null;c&&((h=a[c])!=null||(a[c]=r.getCellValueAsString(l)||r.name)),a[R]=y;let w=c&&a[c]?a[c]:r.getCellValueAsString(l)||r.name;a.post_status&&!d.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:r.id,sku:a.sku,wp_id:r.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),m(`POSTing to ${k}`);let{data:p,status:x}=await J(k,M,f),_=(L=(E=p.term_id)!=null?E:p.post_id)!=null?L:(T=p==null?void 0:p.data)==null?void 0:T.post_id,F=(v=p.action)!=null?v:"unknown",O=(A=p.message)!=null?A:"";output.set("syncStatus",p&&_?"Success":`HTTP_${x}`),output.set("action",F),output.set("message",O),output.set("postTitle",w),output.set("wpPostId",_!=null?_:null),m(`\u2705 WP ${F} \u2013  ${w}`)}var U={session_title:"post_title",session_slug:"post_name",session_description:"post_content",excerpt:"post_excerpt",session_permalink:"_custom_uri",_aioseo_description:"_aioseo_description",session_sku:"sku",website_status:"post_status",topics_title:"topics",speaker_title:"author-speaker",series_category:"series-categories",global_categories:"global-categories",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},pdf_image_1:{airtableIdField:"pdf_image_1_wp_id",airtableLinkField:"pdf_image_1_link",wpKey:"pdf-image-1"},pdf_image_2:{airtableIdField:"pdf_image_2_wp_id",airtableLinkField:"pdf_image_2_link",wpKey:"manual2-image"},pdf_title_1:"custom-pdf-title-1",pdf_link_1:"link_ten",pdf_title_2:"custom-pdf-title-2",pdf_link_2:"link_eleven",alt_link:"link_five",youtube_link:"link_one",vimeo_link:"vimeo_link",spotify_podcast:"spotify-podcast-link",apple_podcast:"apple-podcast-link",publish_timestamp:"last_published",series_sku:"jet_relation_series_parent",series_wp_id:"jet_relation_series_wp_id",series_title:"jet_relation_series_title"},Q=input.config();C({airtableTable:"Sessions",skuField:"session_sku",titleField:"session_title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/sessions-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync"}},Q);})();
+</file>
+
 <file path="quick-sync-plugin/module-base.php">
 <?php
 use AIOSEO\Plugin\Common\Models\Post as AioseoPost;
@@ -5720,9 +5969,11 @@ abstract class F12_Quick_Sync_Module_Base {
     
         if ( $wp_id > 0 ) {
             $potential_post = get_post( $wp_id );
+            
+            // --- START of the MODIFICATION ---
             if ( $potential_post && $potential_post->post_type === $this->cpt ) {
+                // This is the original, correct logic for a successful match.
                 $existing_sku = get_post_meta( $potential_post->ID, $this->sku_meta_key, true );
-                // This is the key change: Allow a match if the existing SKU is empty (so we can claim it) or if the SKUs match.
                 if ( empty($existing_sku) || $existing_sku === $sku ) {
                     $post = $potential_post;
                     $mode = 'update';
@@ -5734,9 +5985,24 @@ abstract class F12_Quick_Sync_Module_Base {
                 } else {
                      f12_sync_log( sprintf( 'wp_id %d provided, but its SKU ("%s") does not match payload SKU ("%s"). Falling back to SKU lookup.', $wp_id, esc_html($existing_sku), esc_html( $sku ) ) );
                 }
+            } else if ( $potential_post && $potential_post->post_type !== $this->cpt ) {
+                // --- THIS IS THE NEW, SAFER LOGIC ---
+                // A post was found, but it's the wrong type. This is a fatal config error.
+                $error_msg = sprintf(
+                    'A post was found for wp_id %d, but its type ("%s") does not match the configured type ("%s") for this endpoint. Please correct the CPT slug in your PHP module.',
+                    $wp_id,
+                    $potential_post->post_type,
+                    $this->cpt
+                );
+                f12_sync_log('[FATAL] ' . $error_msg);
+                // Return a 409 Conflict error, as the payload data conflicts with server configuration.
+                return new WP_Error( 'f12_cpt_mismatch', $error_msg, [ 'status' => 409 ] );
+                // --- END OF THE NEW LOGIC ---
             } else {
-                f12_sync_log( sprintf( 'wp_id %d provided, but post not found or is wrong CPT. Falling back to SKU lookup.', $wp_id ) );
+                // The original fallback for when the wp_id doesn't exist at all.
+                f12_sync_log( sprintf( 'wp_id %d provided, but no post was found. Falling back to SKU lookup.', $wp_id ) );
             }
+            // --- END of the MODIFICATION ---
         }
     
         if ( ! $mode ) {
@@ -6160,6 +6426,7 @@ The content is organized as follows:
 
 <directory_structure>
 modules/
+  albums-sync.php
   author-sync.php
   leaders-sync.php
   series-sync.php
@@ -6173,6 +6440,73 @@ relations.php
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="modules/albums-sync.php">
+<?php
+/**
+ * Quick Sync Module: Albums CPT
+ *
+ * Provides the specific configuration for syncing the 'albums' Custom Post Type.
+ * It inherits all universal processing logic (post lookup, image handling, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Albums_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'albums' CPT.
+     * This function maps the incoming payload from Airtable to the correct
+     * WordPress fields, taxonomies, and meta keys.
+     */
+    protected function init() {
+        // --- 1. Core Configuration ---
+        // Defines the CPT slug, the API endpoint, and the SKU meta key.
+        $this->cpt = 'albums';
+        $this->endpoint_slug = 'albums-sync';
+        $this->sku_meta_key = 'album_sku'; // Convention: CPT_sku
+
+        // --- 2. Core Field Mapping ---
+        // Maps payload keys to core WordPress post fields (wp_posts table).
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_status'  => 'post_status',
+        ];
+
+        // --- 3. Taxonomy Mapping ---
+        // Maps a payload key to a WordPress taxonomy slug. The base class
+        // will automatically create/assign the terms.
+        $this->taxonomy_map = [
+            'worship_artist' => 'worship_artist',
+        ];
+
+        // --- 4. Image/Media Meta Mapping ---
+        // Lists payload keys that correspond to media. The base class uses this
+        // for its URL-sideloading fallback. The primary path (sending a WP ID)
+        // is handled by the generic meta processor.
+        $this->image_meta_map = [
+            '_thumbnail_id',     // The featured image.
+            'chord_sheet_pdf',   // The chord sheet PDF.
+        ];
+
+        // --- 5. Post Content ---
+        // This CPT does not have a main content field, so we set this to null.
+        $this->post_content_key = null;
+        
+        // Note: The simple meta fields from your Airtable script (`apple_music_link`, 
+        // `spotify_link`, `youtube_music_link`, and `chord_sheet_pdf`) do not need
+        // to be explicitly defined here. The base class's `_process_meta_fields` 
+        // method will automatically handle any remaining keys in the payload and
+        // save them as post meta.
+    }
+
+    // No other methods are needed. The F12_Quick_Sync_Module_Base handles everything else.
+}
+</file>
 
 <file path="modules/author-sync.php">
 <?php
@@ -6594,6 +6928,7 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'series-categories' => 'series-categories',
             'topics'            => 'topics',
             'series-templates'  => 'series-templates',
+            'author-speaker'    => 'author-speaker',
         ];
 
         $this->image_meta_map = [
@@ -6603,6 +6938,8 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'banner-image',
             'manual1-image',
         ];
+
+        $this->post_content_key = 'post_content';
 
         // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
         $this->jet_engine_relation_map = [
@@ -7823,10 +8160,6 @@ function f12_set_relation_parent_by_sku( int $child_id, string $parent_sku, arra
 </files>
 </file>
 
-<file path="quick-sync-scripts/dist/sessions-sync.js">
-"use strict";(()=>{var m=i=>console.log(`[${new Date().toISOString()}]`,i),K=["publish","draft","trash","private"],I="API-SYNC",R="last_synced";function V(i,e=I){if(!i||!i.includes(":"))throw new Error(`Secret "${e}" must be "user:app-password".`);return Buffer.from(i).toString("base64")}function D(i,e,n){let t=new Set;for(let o in i){let s=i[o];typeof s=="string"?t.add(o):(t.add(s.airtableIdField),s.airtableLinkField&&t.add(s.airtableLinkField))}return t.add("wp_id").add(e).add(n),Array.from(t)}function q(i,e){return e==null?null:Array.isArray(e)?e.map(n=>typeof n=="object"&&n!==null&&"name"in n?n.name:String(n)):typeof e=="object"&&e.url?e.url:typeof e=="object"&&e!==null&&"name"in e?e.name:e}function B(i,e){let n=i.parentTable,t={};for(let o in e){let s=e[o];if(typeof s=="string"){let d=i.getCellValue(o);s==="post_status"?t.post_status=d&&d.name?d.name.toLowerCase():typeof d=="string"?d.toLowerCase():null:t[s]=q(o,d);continue}let l=i.getCellValue(s.airtableIdField)||s.airtableLinkField&&i.getCellValue(s.airtableLinkField);l&&(t[s.wpKey]=l)}return t}async function J(i,e,n){let t=await fetch(i,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Basic ${e}`},body:JSON.stringify(n)}),o=await t.text();if(!t.ok)throw new Error(`HTTP ${t.status}: ${o.slice(0,500)}`);return{data:JSON.parse(o),status:t.status}}async function C(i,e){var S,h,E,T,L,v,A;let{airtableTable:n,fieldMap:t,envEndpoints:o,skuField:s,titleField:l,allowedStatuses:d=K,secretName:b=I}=i;if(!s||!l)throw new Error("quickSync: skuField and titleField are required");let{recordId:u,env:g}=e;if(!u)throw new Error("Automation must pass {recordId}.");if(!g||!o[g]){let P=Object.keys(o).join(", ");throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${P}`)}let k=o[g],y=Math.floor(Date.now()/1e3);m(`Quick-Sync (${n}) start \u2013 epoch ${y}`);let $=await input.secret(b),M=V($,b),j=base.getTable(n),N=D(t,s,l),r=await j.selectRecordAsync(u,{fields:N});if(!r)throw new Error(`Record ${u} not found in ${n}`);let a=B(r,t);(S=a.sku)!=null||(a.sku=r.getCellValueAsString(s));let c=typeof t[l]=="string"?t[l]:null;c&&((h=a[c])!=null||(a[c]=r.getCellValueAsString(l)||r.name)),a[R]=y;let w=c&&a[c]?a[c]:r.getCellValueAsString(l)||r.name;a.post_status&&!d.includes(a.post_status)&&delete a.post_status;let f={airtableRecordId:r.id,sku:a.sku,wp_id:r.getCellValue("wp_id")||null,fields:a};console.log(JSON.stringify(f,null,2).substring(0,5e3)),output.set("payloadSent",JSON.stringify(f,null,2).slice(0,2500)),m(`POSTing to ${k}`);let{data:p,status:x}=await J(k,M,f),_=(L=(E=p.term_id)!=null?E:p.post_id)!=null?L:(T=p==null?void 0:p.data)==null?void 0:T.post_id,F=(v=p.action)!=null?v:"unknown",O=(A=p.message)!=null?A:"";output.set("syncStatus",p&&_?"Success":`HTTP_${x}`),output.set("action",F),output.set("message",O),output.set("postTitle",w),output.set("wpPostId",_!=null?_:null),m(`\u2705 WP ${F} \u2013  ${w}`)}var U={session_title:"post_title",session_slug:"post_name",session_description:"post_content",excerpt:"post_excerpt",session_permalink:"_custom_uri",_aioseo_description:"_aioseo_description",session_sku:"sku",website_status:"post_status",topics_title:"topics",speaker_title:"author_speaker",series_category:"series-categories",global_categories:"global-categories",featured_image:{airtableIdField:"featured_image_wp_id",airtableLinkField:"featured_image_link",wpKey:"_thumbnail_id"},listing_image:{airtableIdField:"listing_image_wp_id",airtableLinkField:"listing_image_link",wpKey:"listing-image"},no_words_image:{airtableIdField:"no_words_image_wp_id",airtableLinkField:"no_words_image_link",wpKey:"no-words-image"},banner_image:{airtableIdField:"banner_image_wp_id",airtableLinkField:"banner_image_link",wpKey:"banner-image"},pdf_image_1:{airtableIdField:"pdf_image_1_wp_id",airtableLinkField:"pdf_image_1_link",wpKey:"pdf-image-1"},pdf_image_2:{airtableIdField:"pdf_image_2_wp_id",airtableLinkField:"pdf_image_2_link",wpKey:"manual2-image"},pdf_title_1:"custom-pdf-title-1",pdf_link_1:"link_ten",pdf_title_2:"custom-pdf-title-2",pdf_link_2:"link_eleven",alt_link:"link_five",youtube_link:"link_one",vimeo_link:"vimeo_link",spotify_podcast:"spotify-podcast-link",apple_podcast:"apple-podcast-link",publish_timestamp:"last_published",series_sku:"jet_relation_series_parent",series_wp_id:"jet_relation_series_wp_id",series_title:"jet_relation_series_title"},Q=input.config();C({airtableTable:"Sessions",skuField:"session_sku",titleField:"session_title",fieldMap:U,envEndpoints:{prod:"https://four12global.com/wp-json/four12/v1/sessions-sync",staging:"https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/sessions-sync"}},Q);})();
-</file>
-
 <file path="quick-sync-scripts/src/sessions-sync.ts">
 import { quickSync } from './lib/sync-helpers';
 
@@ -7839,7 +8172,7 @@ const FIELD_MAP = {
 
   /* Custom permalink (Permalink Manager / AIOSEO) */
   session_permalink:   '_custom_uri',
-  _aioseo_description:     '_aioseo_description',
+  _aioseo_description: '_aioseo_description',
 
 
   /* ── SKU & Status ─────────────────────────────── */
@@ -7848,7 +8181,7 @@ const FIELD_MAP = {
 
   /* ── Taxonomies ──────────────────────────────── */
   topics_title:        'topics',
-  speaker_title:       'author_speaker',
+  speaker_title:       'author-speaker',
   series_category:     'series-categories',
   global_categories:   'global-categories',
 
@@ -7900,7 +8233,7 @@ const FIELD_MAP = {
 
   /* ── JetEngine relationship (Series parent SKU) ── */
   series_sku:    'jet_relation_series_parent',
-  series_wp_id:    'jet_relation_series_wp_id',
+  series_wp_id:  'jet_relation_series_wp_id',
   series_title:  'jet_relation_series_title',
 };
 

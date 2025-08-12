@@ -21,7 +21,7 @@ class F12_Worship_Sync_Module extends F12_Quick_Sync_Module_Base {
     protected function init() {
         // --- 1. Core Configuration ---
         // Defines the CPT slug, the API endpoint, and the SKU meta key.
-        $this->cpt = 'worship-albums';
+        $this->cpt = 'songs';
         $this->endpoint_slug = 'worship-sync';
         $this->sku_meta_key = 'sku'; // Convention: CPT_sku
 
@@ -30,6 +30,8 @@ class F12_Worship_Sync_Module extends F12_Quick_Sync_Module_Base {
         $this->core_field_map = [
             'post_title'   => 'post_title',
             'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_date'    => 'post_date',
             'post_status'  => 'post_status',
         ];
 
@@ -37,7 +39,9 @@ class F12_Worship_Sync_Module extends F12_Quick_Sync_Module_Base {
         // Maps a payload key to a WordPress taxonomy slug. The base class
         // will automatically create/assign the terms.
         $this->taxonomy_map = [
-            'worship_artist' => 'worship_artist',
+            'worship_artist' => 'worship-artist',
+            'topics' => 'topics',
+            'global-categories' => 'global-categories',
         ];
 
         // --- 4. Image/Media Meta Mapping ---

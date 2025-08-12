@@ -12,29 +12,46 @@ const WORSHIP_FIELD_MAP: FieldMap = {
   'title': 'post_title',
   'slug': 'post_name',
   'website_status': 'post_status',
+  'excerpt': 'post_excerpt',
+  'seo_description': '_aioseo_description',
+  'release_date': 'post_date',
 
   /* --- SKU (Essential for de-duplication) --- */
   'sku': 'sku',
 
+  /* Custom permalink (Permalink Manager) */
+  permalink:  'custom_permalink_uri',
+
   /* --- Taxonomy --- */
   // Maps the 'worship_artist' field in Airtable to the 'worship_artist' taxonomy in WordPress.
   'worship_artist': 'worship_artist',
+  'topics': 'topics',
+  'category': 'global-categories',
 
   /* --- Media Fields (using the IDs from the media script) --- */
   'featured_image_wp_id': {
     airtableIdField: 'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
     wpKey: '_thumbnail_id', // This is the special WordPress key for the featured image.
   },
-  'chord_sheet_wp_id': {
+
+  // 1. Send the ID to a meta field for backend reference
+  'chord_sheet_wp_id': { // The Airtable field containing the ID(s)
     airtableIdField: 'chord_sheet_wp_id',
-    wpKey: 'chord_sheet_link', // This will be the meta_key in WordPress for the PDF's Media ID.
+    wpKey: 'chord_sheet_wp_id', // Save it to a WP meta field with the same name
   },
 
-  /* --- Simple Meta Fields (Links) --- */
-  // These will be saved directly as post meta in WordPress.
-  'apple_music_link': 'apple_music_link',
-  'spotify_link': 'spotify_link',
-  'youtube_music_link': 'youtube_music_link',
+  // 2. Send the URL to a separate meta field for the frontend
+  'chord_sheet_link': { // The Airtable field containing the URL(s)
+    airtableIdField: 'chord_sheet_link', // Use the link field as the source
+    wpKey: 'chord_sheet_link', // Save it to a clear, distinct WP meta field
+  },
+
+    /* --- Simple Meta Fields (Links) --- */
+    // These will be saved directly as post meta in WordPress.
+    'apple_music_link': 'apple_music_link',
+    'spotify_link': 'spotify_link',
+    'youtube_music_link': 'youtube_music_link',
 };
 
 const worshipSyncConfig = {
@@ -44,6 +61,7 @@ const worshipSyncConfig = {
   /* ----- Airtable field that holds your permanent SKU & title ----- */
   skuField: 'sku',
   titleField: 'title',
+  
 
   /* ----- Use the field map defined above ----- */
   fieldMap: WORSHIP_FIELD_MAP,

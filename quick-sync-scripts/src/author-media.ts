@@ -10,7 +10,7 @@ const authorMediaConfig: MediaSyncConfig = {
   // 2. WP Media endpoints per environment
   envMediaEndpoints: {
     prod: 'https://four12global.com/wp-json/wp/v2/media',
-    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com//wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
   },
 
   // 3. The fields you use to track media changes

@@ -23,6 +23,23 @@ import { buildBasicAuth } from './sync-helpers';          // already exists
 const log = (msg: unknown) =>
   console.log(`[${new Date().toISOString()}]`, msg);  // ← identical to sync-helpers
 
+/**
+ * Fetches table schema to create a map of Field ID -> Field Name
+ * for improved error logging.
+ */
+async function buildFieldIdToNameMap(table: any): Promise<Map<string, string>> {
+  const idToNameMap = new Map<string, string>();
+  // The table object has a 'fields' property which is an array of field objects
+  if (table.fields && Array.isArray(table.fields)) {
+    for (const field of table.fields) {
+      if (field.id && field.name) {
+        idToNameMap.set(field.id, field.name);
+      }
+    }
+  }
+  return idToNameMap;
+}
+
 /* =========  Types  ========= */
 export interface ImageFieldConfig {
   /** Airtable attachment field (array of objects with .url)              */
@@ -204,18 +221,20 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
   } = cfg;
 
   /* —— Inputs —— */
-  // Use the passed-in inputConfig object, just like in quickSync
   const { recordId, env } = inputConfig;
   if (!recordId) throw new Error('Automation must pass {recordId}.');
-  // The same safe check for the 'env' variable
   if (!env || !envMediaEndpoints[env]) {
     const availableEnvs = Object.keys(envMediaEndpoints).join(', ');
     throw new Error(`Input variable "env" is missing or invalid. Please provide one of the following: ${availableEnvs}`);
   }
+
   const wpEndpoint = envMediaEndpoints[env];
   const basicAuth  = buildBasicAuth(await input.secret(secretName), secretName);
 
   const table  = base.getTable(airtableTable);
+  // --- NEW: Build the decoder map ---
+  const fieldIdToNameMap = await buildFieldIdToNameMap(table);
+  // ------------------------------------
   const fields = [
     lastModifiedField,
     publishTimestampField,
@@ -252,8 +271,7 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
       }
     } catch (err) {
       hadErrors = true;
-      log(`⚠️  ${spec.attachmentField}: ${(err as Error).message}`);
-      // do NOT touch fields on error – leave stale values
+      log(`⚠️  Error processing field spec "${spec.attachmentField}": ${(err as Error).message}`);
     }
   }
 
@@ -263,8 +281,24 @@ export async function mediaSync(cfg: MediaSyncConfig, inputConfig: any) {
     } else {
       log('⚠️  Skipping timestamp because at least one upload failed');
     }
-    await table.updateRecordAsync(rec, updates);
-    log('✅ Media sync complete & fields updated');
+    try {
+      await table.updateRecordAsync(rec, updates);
+      log('✅ Media sync complete & fields updated');
+    } catch (err) {
+      const errorMessage = (err as Error).message;
+      // --- NEW: Enhanced Error Logging ---
+      const fieldIdMatch = errorMessage.match(/Field "(.+?)"/);
+      if (fieldIdMatch && fieldIdMatch[1]) {
+        const fieldId = fieldIdMatch[1];
+        const fieldName = fieldIdToNameMap.get(fieldId) || 'Unknown Field';
+        const enhancedMessage = `Error updating Airtable: The field "${fieldName}" (ID: ${fieldId}) could not accept the value provided by the script. Please verify its field type.`;
+        log(`❌ ${enhancedMessage}`);
+        throw new Error(enhancedMessage);
+      }
+      log(`❌ An unexpected error occurred while updating Airtable: ${errorMessage}`);
+      throw err;
+      // ------------------------------------
+    }
   } else {
     log('✔ No media changes detected – nothing to write');
   }

@@ -18,7 +18,7 @@ const FIELD_MAP = {
 
   /* ── Taxonomies ──────────────────────────────── */
   topics_title:        'topics',
-  speaker_title:       'author_speaker',
+  speaker_title:       'author-speaker',
   series_category:     'series-categories',
   global_categories:   'global-categories',
 
