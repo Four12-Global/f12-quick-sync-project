@@ -1,0 +1,22 @@
+# Dependencies
+/node_modules
+/quick-sync-plugin/vendor
+
+# Build output
+/quick-sync-scripts/dist
+
+# Tool-specific generated files
+**/repomix-output.xml
+
+# Log files
+*.log
+debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor specific
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,328 +1,208 @@
+Excellent. Here is a comprehensive, accurate, and well-structured `README.md` file for the `quick-sync-plugin` directory.
 
+It is written for a developer who needs to understand, maintain, and extend the plugin. It addresses the outdated information from your original README and accurately documents the powerful features you have built.
 
-Four12 Quick Sync Framework
+---
 
-Version: 2.1.0
-Author: Four12 Global
-Description: A modular, configuration-driven framework for syncing data from Airtable to WordPress Custom Post Types (CPTs) and Taxonomies via a secure REST API.
+# Four12 Quick Sync Framework
 
-This plugin provides a robust foundation for creating multiple "sync" endpoints, each tailored to a specific post type or taxonomy, without duplicating core logic. It's designed for stability, scalability, and rapid development of new data pipelines.
+**Version: 2.1.0**
+**Author: Four12 Global**
 
-----
+This WordPress plugin provides a modular, configuration-driven framework for syncing data from Airtable. It creates secure REST API endpoints tailored to specific Custom Post Types (CPTs) and Taxonomies, handling the complex logic of data validation, creation, and updating.
 
-f12-quick-sync/
+## Core Philosophy
+
+*   **Configuration over Code:** Define *what* to sync in a module's configuration arrays, not by writing new processing logic.
+*   **Don't Repeat Yourself (DRY):** All shared logic (post lookup, image handling, business rules) lives in central files and is inherited or used by all modules.
+*   **Modular & Isolated:** Each sync endpoint is its own class in the `/modules` directory. A bug in one module won't break another.
+*   **Two Patterns for Two Jobs:** The framework uses a powerful base class for CPTs and a flexible standalone class pattern for Taxonomies, providing the right tool for each job.
+
+## Installation & Dependencies
+
+1.  Place this plugin folder (`quick-sync-plugin`) in your `wp-content/plugins` directory.
+2.  This plugin uses third-party libraries managed by Composer. If the `vendor` directory is missing, you must run `composer install` from within this directory:
+    ```bash
+    # Navigate to the plugin directory
+    cd wp-content/plugins/quick-sync-plugin
+
+    # Install PHP dependencies
+    composer install
+    ```
+3.  Activate the plugin in the WordPress admin panel.
+
+## File Structure Breakdown
+
+The plugin's architecture is designed for clarity and separation of concerns.
+
+```
+quick-sync-plugin/
 │
-├─ f12-quick-sync.php        ← Main bootstrap & router (≈150 lines)
-├─ core-helpers.php         ← Re-usable functions (≈200 lines total)
-├─ module-base.php           ← Abstract class every module extends (≈120 lines)
+├─ f12-quick-sync.php        # The Router: Main plugin file that boots the framework and registers all module API routes.
+├─ core-helpers.php          # The Toolbox: Global helper functions (logging, image sideloading, SKU lookups).
+├─ module-base.php           # The Engine: An abstract base class containing all shared logic for CPT syncing.
+├─ relations.php             # The Specialist: A dedicated helper for handling JetEngine relationships.
 └─ modules/
-     ├─ series.php           ← One class, mapping lives here
-     └─ author.php           ← Ditto (add more modules as you grow)
-vendor/
-    └─ parsedown/Parsedown.php   ← Left untouched
+     ├─ series-sync.php      # Example CPT Module: A simple configuration class that extends module-base.php.
+     └─ author-sync.php      # Example Taxonomy Module: A standalone class with its own full request logic.
+```
 
-----
+## How It Works: The Request Lifecycle
 
-Table of Contents
+1.  An API request (e.g., `POST /wp-json/four12/v1/sessions-sync`) arrives from an Airtable script.
+2.  The **Router** (`f12-quick-sync.php`) matches the endpoint slug (`sessions-sync`) to its corresponding module class (`F12_Sessions_Sync_Module`).
+3.  The request is handed off to the module's `handle_sync_request` method.
+4.  For CPTs, this method lives in the **Engine** (`module-base.php`). It orchestrates the entire process:
+    *   Finds the existing post via `wp_id` or `sku`.
+    *   Prepares and saves core post data (`post_title`, `post_date`, etc.).
+    *   Processes taxonomies, media, relationships, and all other metadata based on the module's configuration.
+5.  A JSON response is sent back to Airtable confirming the `post_id` and the action taken (`created` or `updated`).
 
-Core Philosophy
+---
 
-How It Works: The End-to-End Flow
+## Key Features
 
-File Structure
+### Universal Features (All Modules)
 
-Key Features & Universal Logic
+*   **SKU-based De-duplication:** A `sku` field is used to reliably find existing items, preventing duplicates.
+*   **`wp_id` Fast-Path:** An optional `wp_id` in the payload bypasses the SKU lookup for faster, more efficient updates.
+*   **Secure Authentication:** Relies on WordPress Application Passwords for all endpoints.
+*   **Robust Post Type Validation:** Returns a `409 Conflict` error if a `wp_id` is provided that belongs to a post of the wrong type, preventing accidental data corruption.
 
-Payload Anatomy
+### CPT Module Features (via `module-base.php`)
 
-How to Add a New CPT Sync Module
+Any CPT module that extends `F12_Quick_Sync_Module_Base` gets this powerful logic automatically:
 
-How to Add a New Taxonomy Sync Module
+*   **Declarative Markdown Parsing:** Simply map an Airtable field to `post_content` (or a meta field) in the `$markdown_map` property, and it will be automatically converted to safe HTML using Parsedown.
+*   **AIOSEO Integration:** Payloads containing the `_aioseo_description` key are automatically and safely saved using AIOSEO's models.
+*   **Dynamic Taxonomy Handling:** Automatically creates and assigns terms from arrays, comma-separated strings, or hierarchical strings (`Parent > Child`).
+*   **Image Sideloading Fallback:** If an image meta key (defined in `$image_meta_map`) contains a URL instead of an ID, the plugin downloads it to the Media Library and saves the new attachment ID.
+*   **JetEngine Relationship Sync:** A declarative `$jet_engine_relation_map` allows for effortless syncing of parent-child relationships using SKUs.
 
-Core Helpers & Shared Logic
+---
 
-Third-Party Integrations
+## How to Add a New Sync Module
 
-Authentication
+### **Pattern 1: Adding a New CPT Sync (e.g., "Events")**
 
-Logging & Debugging
+This is the most common pattern. It relies purely on configuration and inherits all logic.
 
-Best Practices & Performance
+1.  **Create Module File:** Duplicate `modules/series-sync.php` and rename it `modules/events-sync.php`.
+2.  **Configure the Class:** Edit the class name and fill in the configuration properties.
 
-1. Core Philosophy
+    ```php
+    <?php
+    // modules/events-sync.php
 
-Configuration over Code: Define what to sync in a module's configuration arrays, not by writing new processing logic.
+    class F12_Events_Sync_Module extends F12_Quick_Sync_Module_Base {
 
-Don't Repeat Yourself (DRY): All shared logic (post lookup, image sideloading, universal business rules) lives in central files and is inherited or used by all modules.
+        protected function init() {
+            // --- 1. Core Configuration ---
+            $this->cpt = 'event';
+            $this->endpoint_slug = 'event-sync';
+            $this->sku_meta_key = 'event_sku';
 
-Modular & Isolated: Each sync endpoint is its own class in the /modules directory. A bug in one module won't break another.
+            // --- 2. Field Mapping ---
+            $this->core_field_map = [
+                // Airtable Payload Key => WordPress Post Field
+                'event_title'   => 'post_title',
+                'event_date'    => 'post_date',
+                'event_status'  => 'post_status',
+            ];
+            $this->taxonomy_map = [
+                'event_type' => 'event-category',
+            ];
+            $this->image_meta_map = [
+                '_thumbnail_id',
+                'banner_image',
+            ];
 
-Idempotent & Robust: Running the same sync multiple times will not create duplicate data or cause errors. The system gracefully handles creates, updates, and retries.
+            // --- 3. (Optional) Markdown Mapping ---
+            $this->markdown_map = [
+                // Airtable Field      => Destination(s) in WordPress
+                'event_description_md' => ['post_content'],
+            ];
+        }
+    }
+    ```
+3.  **Done!** The framework automatically discovers the new module and registers the `/wp-json/four12/v1/event-sync` endpoint on the next page load.
 
-2. How It Works: The End-to-End Flow
+### **Pattern 2: Adding a New Taxonomy Sync (e.g., "Topics")**
 
-This plugin is the server-side component of the "Quick Sync" workflow.
+This pattern provides more granular control for the unique needs of taxonomies (like meta whitelisting).
 
-Generated mermaid
-flowchart TD
-    subgraph Airtable Automation
-        A[Button Click / Trigger] --> B(Airtable Media Script);
-        B -- "sends image, gets back wp_id" --> C(Airtable QuickSync Script);
-    end
+1.  **Create Module File:** Duplicate `modules/author-sync.php` and rename it `modules/topics-sync.php`.
+2.  **Configure the Class:** Edit the class name and update the private configuration properties. The core logic for finding, creating, and updating terms is already present.
 
-    C -- "POSTs JSON Payload" --> D[WordPress REST API];
+    ```php
+    <?php
+    // modules/topics-sync.php
 
-    subgraph WordPress (f12-quick-sync plugin)
-        D -- "/four12/v1/series-sync" --> E{Plugin Router};
-        E -- "routes to correct module" --> F[Series or Author Module];
-        F -- "processes data using..." --> G[Base Class Logic & Core Helpers];
-        G -- "creates/updates..." --> H[WP Post or Term];
-    end
+    class F12_Topics_Sync_Module { // Note: Does NOT extend the base class
+        // --- 1. Configuration ---
+        private $endpoint_slug = 'topic-sync';
+        private $taxonomy = 'topics';
+        private $sku_meta_key = 'topic_sku';
 
-    H -- "sends back {post_id, action}" --> C;
+        // --- 2. Whitelist your allowed meta keys ---
+        private $allowed_meta_keys = [
+            'topic_icon_class',
+            'is_featured_topic',
+        ];
 
+        // The rest of the file (handle_sync_request, find_existing_term, etc.)
+        // contains the robust logic for handling taxonomy terms.
+    }
+    ```
+3.  **Done!** The router will register the new `/wp-json/four12/v1/topic-sync` endpoint.
 
-Airtable Scripts prepare a JSON payload, first syncing images to get Media IDs, then packaging the full record data.
+---
 
-The payload is POSTed to a specific endpoint (e.g., /wp-json/four12/v1/series-sync).
+## Payload Anatomy
 
-The Plugin Router (f12-quick-sync.php) identifies the correct module based on the endpoint slug.
+The plugin expects a specific JSON structure from Airtable scripts.
 
-The Module (e.g., modules/series.php) provides the configuration.
-
-The Base Class or Module Logic executes the sync, using shared helpers for common tasks.
-
-A response is sent back to Airtable confirming the post_id or term_id and action (created or updated).
-
-3. File Structure
-Generated code
-f12-quick-sync/
-│
-├─ f12-quick-sync.php        ← Main plugin file, bootstrapper, and router.
-├─ core-helpers.php          ← Reusable, global functions (logging, sideloading).
-├─ module-base.php           ← The abstract base class with all shared CPT sync logic.
-└─ modules/
-     ├─ series.php           ← Example CPT module. **(This is what you copy for CPTs)**
-     └─ author-speaker.php   ← Example Taxonomy module. **(This is what you copy for Taxonomies)**
-└─ vendor/
-     └─ parsedown/
-          └─ Parsedown.php    ← Third-party library for Markdown parsing.
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-IGNORE_WHEN_COPYING_END
-4. Key Features & Universal Logic
-
-This framework handles complex tasks automatically for you.
-
-Features for All Modules
-
-SKU-based De-duplication: The primary sku field is used to find existing items to prevent duplicates.
-
-wp_id Fast-Path: An optional wp_id in the payload allows the system to bypass the SKU lookup for faster updates.
-
-Secure Authentication: Relies on WordPress Application Passwords for secure API access.
-
-Automatic Logic for CPT Modules (from module-base.php)
-
-Any module extending F12_Quick_Sync_Module_Base gets this for free:
-
-Timezone Normalization: Any payload containing a last_synced key will have its value automatically adjusted to GMT+2 (Johannesburg time).
-
-AIOSEO Integration: If a payload contains the _aioseo_description key, it will be automatically and safely saved using AIOSEO's models.
-
-Dynamic Taxonomy Handling: Automatically creates and assigns terms from arrays, comma-separated strings, or hierarchical strings (Parent > Child).
-
-Image Sideloading: If an image meta key (defined in the module's $image_meta_map) contains a URL, the plugin downloads it, adds it to the Media Library, and saves the attachment ID.
-
-Permalink Manager Integration: Safely handles custom_permalink_uri without conflicting with the native slug.
-
-Features for Taxonomy Modules (from author-speaker.php blueprint)
-
-Robust Term De-duplication: Uses a wp_id -> SKU -> slug lookup chain.
-
-Safe Meta Whitelisting: Prevents database pollution by only saving meta keys defined in an $allowed_meta_keys array. Unknown keys are logged and ignored.
-
-Safe Meta Deletion: Only deletes a meta field if the payload explicitly sends a null value for that key, preventing accidental data loss.
-
-Markdown Support: Easily integrates Parsedown to convert rich text fields to safe HTML.
-
-5. Payload Anatomy
-
-The plugin expects a specific JSON structure from Airtable.
-
-Generated json
+```json
 {
   "airtableRecordId": "recXXXXXXXXXXXXXX",
   "sku": "S0123",             // Unique identifier (required)
   "wp_id": 1234,              // WordPress Post/Term ID (optional, for fast updates)
   "fields": {
-    /* --- Core Fields --- */
-    "post_title": "My Series Title",      // For CPTs
-    "name": "My Author Name",             // For Taxonomies
+    /* --- Core Fields (for CPTs) --- */
+    "post_title": "My Series Title",
     "post_status": "publish",
+    "post_date": "2024-01-01T12:00:00Z",
 
     /* --- Universal Framework Keys with Special Handling --- */
-    "last_synced": 1672531200,            // Becomes GMT+2 automatically for CPTs
-    "_aioseo_description": "My SEO desc.", // Saved via AIOSEO automatically for CPTs
-    "custom_permalink_uri": "path/to/my-series/", // Handled by Permalink Manager for CPTs
+    "_aioseo_description": "My SEO description.",
+    "jet_relation_series_parent": ["PARENT-SKU-001"],
 
     /* --- Image Fields --- */
     "_thumbnail_id": 567,                 // WP Media ID (preferred)
     "banner-image": "https://.../img.jpg",    // URL (fallback, will be sideloaded)
-    
+
     /* --- Taxonomy Fields --- */
     "topics": ["Topic A", "Topic B"],
     "series-categories": "Parent > Child"
   }
 }
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-Json
-IGNORE_WHEN_COPYING_END
-6. How to Add a New CPT Sync Module
+```
 
-Creating a new endpoint for a CPT (e.g., "Events") is incredibly simple.
+## Authentication
 
-Step 1: Create the Module File
-Duplicate modules/series.php and rename it to modules/events.php.
+Authentication is handled via **WordPress Application Passwords**.
 
-Step 2: Edit the Class
-Open modules/events.php and change the class name and configuration properties.
+1.  In the WordPress admin, go to **Users > Your Profile**.
+2.  Scroll down to "Application Passwords".
+3.  Create a new password (e.g., "Airtable Sync").
+4.  Copy the generated password (e.g., `abcd efgh ijkl mnop qrst uvwx`).
+5.  In your Airtable Automation, create a Secret (e.g., `API-SYNC`) and store your credentials in the format `username:password` (e.g., `my_wp_admin_user:abcd efgh ijkl mnop qrst uvwx`).
 
-Generated php
-<?php
-// modules/events.php
+## Logging & Debugging
 
-class F12_Events_Sync_Module extends F12_Quick_Sync_Module_Base {
-
-    protected function init() {
-        // --- 1. Core Configuration ---
-        $this->cpt = 'event';
-        $this->endpoint_slug = 'event-sync';
-        $this->sku_meta_key = 'event_sku';
-
-        // --- 2. Field Mapping ---
-        $this->core_field_map = [
-            'event_title'   => 'post_title',
-            'event_slug'    => 'post_name',
-        ];
-
-        $this->taxonomy_map = [
-            'event_category_from_airtable' => 'event-categories',
-        ];
-
-        $this->image_meta_map = [
-            '_thumbnail_id',
-            'event_banner_image',
-        ];
-
-        $this->post_content_key = 'event_description'; 
-    }
-}
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-PHP
-IGNORE_WHEN_COPYING_END
-
-Step 3: Done!
-The framework's router will automatically detect the new class and register the endpoint /wp-json/four12/v1/event-sync. It will automatically inherit the universal timezone and AIOSEO handling.
-
-7. How to Add a New Taxonomy Sync Module
-
-Creating an endpoint for a new taxonomy (e.g., "Topics") is just as easy.
-
-Step 1: Create the Module File
-Duplicate modules/author-speaker.php and rename it to modules/topics.php.
-
-Step 2: Edit the Class
-Open modules/topics.php and change the class name and configuration properties.
-
-Generated php
-<?php
-// modules/topics.php
-
-class F12_Topics_Sync_Module {
-    // --- 1. Configuration ---
-    private $endpoint_slug = 'topic-sync';
-    private $taxonomy = 'topics';
-    private $sku_meta_key = 'topic_sku';
-
-    // --- 2. Whitelist your allowed meta keys ---
-    private $allowed_meta_keys = [
-        'topic_icon_class',
-        'is_featured',
-    ];
-
-    // The rest of the file (handle_sync_request, find_existing_term, etc.)
-    // contains the logic. You may need to tweak the Parsedown logic if the
-    // topic description field has a different name.
-}
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-PHP
-IGNORE_WHEN_COPYING_END
-
-Step 3: Done!
-The router will register the new /wp-json/four12/v1/topic-sync endpoint.
-
-8. Core Helpers & Shared Logic
-
-module-base.php: The engine for CPTs. It handles the entire sync lifecycle, including the automatic universal logic.
-
-core-helpers.php: Provides standalone functions available to any module:
-
-f12_sync_log(): Conditional logging.
-
-f12_sideload_image_from_url(): Robust image sideloading.
-
-f12_get_post_by_sku(): Standardized post lookup.
-
-f12_quick_sync_permission_check(): Centralized auth check.
-
-9. Third-Party Integrations
-
-AIOSEO / Permalink Manager / JetEngine: Handled automatically by the CPT base class.
-
-Parsedown: To use Markdown in a taxonomy module, ensure Parsedown.php is in the vendor folder and call it within your module's handler, as seen in author-speaker.php.
-
-10. Authentication
-
-Authentication is handled via WordPress Application Passwords.
-
-In the WordPress admin, go to Users > Your Profile.
-
-Scroll down to "Application Passwords".
-
-Create a new password (e.g., "Airtable Sync").
-
-Copy the generated password (e.g., abcd efgh ijkl mnop qrst uvwx).
-
-In Airtable, create a Secret named API-SYNC and store your credentials in the format username:password (e.g., my_wp_admin_user:abcd efgh ijkl mnop qrst uvwx).
-
-11. Logging & Debugging
-
-Enable WP_DEBUG: To see detailed logs, set WP_DEBUG and WP_DEBUG_LOG to true in your wp-config.php.
-
-Log Location: All server-side sync activity is logged to wp-content/debug.log with the prefix [Four12 Quick Sync].
-
-What is Logged: Failures, successes, and warnings, including ignored meta keys, reasons for skipping a field, and outcomes of third-party integrations.
-
-12. Best Practices & Performance
-
-Throttle on the Airtable Side: To avoid overwhelming the server, process no more than 5-10 records per minute.
-
-Use the wp_id Fast-Path: Ensure your Airtable scripts store the post_id/term_id returned by the API and send it back on subsequent syncs.
-
-Maintain the Whitelist: When adding a new meta field to a taxonomy sync, remember to add its key to the module's $allowed_meta_keys array.
-
+*   **Enable WP_DEBUG:** To see detailed logs, set `WP_DEBUG` and `WP_DEBUG_LOG` to `true` in your `wp-config.php`.
+*   **Log Location:** All server-side sync activity is logged to `wp-content/debug.log` with the prefix `[Four12 Quick Sync]`.
+*   **What is Logged:** Successes, failures, warnings, ignored meta keys, reasons for skipping a field, and outcomes of third-party integrations.
 
 ##Relationships
 
@@ -362,8 +242,6 @@ Here is the step-by-step journey of a relationship sync from Airtable to the Wor
     - **CRITICAL STEP:** It calls `$rel->set_update_context('child')`. This tells JetEngine, "The action I'm about to perform is from the child's perspective. You should **replace** any existing parents for this child with the one I'm about to provide."
     - It calls `$rel->update(326588, 334333)`, passing the parent ID and child ID as single integers.
 6. **The Database (`wp_postmeta`):** Because the "Register separate DB table" setting is OFF for this relation, JetEngine saves the link by creating/updating a row in the `wp_postmeta` table where `post_id` is the child's ID, `meta_key` is `jet_engine_relation_series_resources`, and `meta_value` is the parent's ID.
-
----
 
 ## 3. Component Breakdown
 

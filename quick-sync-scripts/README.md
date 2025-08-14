@@ -1,101 +1,186 @@
-# Airtable Script Templates for Quick-Sync
+Of course. Here is a comprehensive and well-thought-out `README.md` for the `quick-sync-scripts` directory.
 
-This directory contains master templates for the JavaScript code that runs inside Airtable Automations. Using these templates ensures a consistent, reliable, and easy-to-extend synchronization process.
+This document replaces the outdated instructions, accurately reflects the modern TypeScript architecture, and provides a clear, step-by-step guide for developers to maintain and extend the Airtable scripts.
 
-**Do not edit the template files directly.** Always copy their contents to create new scripts for each CPT or Taxonomy you want to sync.
+---
+
+# Airtable Quick Sync Scripts
+
+This is a TypeScript project that contains all the "client-side" scripts for the Airtable-to-WordPress synchronization system. These scripts run inside Airtable Automations, gather record data, and send it to the `quick-sync-plugin` on the WordPress server.
+
+## Core Architecture
+
+This is not a collection of standalone scripts. It is a modern TypeScript project that must be **compiled** before use. This approach provides significant advantages:
+
+*   **Type Safety:** TypeScript prevents common errors before the code ever runs in Airtable.
+*   **Shared Logic:** Common functions for authentication, data handling, and media uploads are centralized in `src/lib/` for consistency and easy updates.
+*   **Modularity:** Each CPT or Taxonomy has its own small, clean entry-point file, which is easy to read and manage.
+*   **Build Process:** A standardized build process (`npm run build`) minifies the code, making it efficient to paste into Airtable.
+
+```mermaid
+flowchart LR
+    subgraph "Development (Your Computer)"
+        A[src/lib/sync-helpers.ts] --> B[src/series-sync.ts];
+        C[src/lib/media-helpers.ts] --> D[src/series-media.ts];
+        B & D -- "npm run build" --> E((esbuild Compiler));
+    end
+
+    subgraph "Deployment (Airtable)"
+        F[dist/series-sync.js];
+        G[dist/series-media.js];
+        E --> F & G;
+        F & G -- "Copy & Paste" --> H{Airtable Automation Scripts};
+    end
+```
+
+---
+
+## Developer Setup
+
+**Prerequisites:** You must have [Node.js](https://nodejs.org/) and `npm` installed.
+
+1.  **Install Dependencies:** From within this directory (`quick-sync-scripts/`), run:
+    ```bash
+    npm install
+    ```
+
+2.  **Build the Scripts:** To compile all TypeScript files from `src/` into JavaScript files in `dist/`, run:
+    ```bash
+    npm run build
+    ```
+
+3.  **Watch for Changes (Development):** To automatically re-compile whenever you save a file, run:
+    ```bash
+    npm run watch
+    ```
+
+---
 
 ## The Two-Step Sync Process
 
-For any given record, the sync is a two-step process within Airtable Automations:
+For each record, we use a two-step automation in Airtable to ensure media is handled correctly.
 
-1.  **Media Sync (Step 1):** The `TEMPLATE_MediaScript.js` runs first. Its only job is to upload image attachments to the WordPress Media Library and write the resulting WordPress Media IDs back into the Airtable record.
+1.  **Media Sync Script:** Runs first. It uploads images/files to WordPress and saves the returned WordPress Media IDs back to the Airtable record.
+2.  **Data Sync Script:** Runs second. It sends all the record's text data, taxonomy data, and the stable WordPress Media IDs from Step 1 to the custom endpoint in our plugin.
 
-2.  **Data Sync (Step 2):** The `TEMPLATE_QuickSyncScript.js` runs second. It gathers all the record's data—including the Media IDs from Step 1—and sends the complete package to the custom WordPress endpoint.
+## How to Add a New Sync Workflow (e.g., for an "Events" CPT)
 
-This two-step approach is crucial because it ensures that when the main data sync happens, we are sending stable WordPress Media IDs, not temporary URLs.
+Follow this two-step process to create the necessary scripts for a new CPT.
+
+### Step 1: Create the Media Script
+
+This script handles the image attachments.
+
+1.  Create a new file in the `src/` directory: `events-media.ts`.
+2.  Add the following code, customizing the `eventsMediaConfig` object for your needs.
+
+    ```typescript
+    // src/events-media.ts
+
+    import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+    // The single, valid call to input.config() for the entire script run.
+    const scriptInput = input.config();
+
+    const eventsMediaConfig: MediaSyncConfig = {
+      // 1. The name of your Airtable table
+      airtableTable: 'Events',
+
+      // 2. The standard WordPress media endpoints
+      envMediaEndpoints: {
+        prod:    'https://four12global.com/wp-json/wp/v2/media',
+        staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
+      },
+
+      // 3. Airtable fields used to track when a sync is needed
+      lastModifiedField:     'media_last_modified',     // A "Last Modified Time" field
+      publishTimestampField: 'media_publish_timestamp', // A "Date" field (set to "Last Modified")
+
+      // 4. A list of all image/attachment fields for this CPT
+      imageFields: [
+        {
+          attachmentField:    'event_featured_image',    // The attachment field
+          wpIdField:          'event_featured_image_wp_id', // A number field for the WP ID
+          wpUrlField:         'event_featured_image_link',  // A URL field for the WP URL
+          airtableCacheField: 'event_featured_image_ext',   // A text field for the Airtable cache
+          isMultiple:         false,
+        },
+        // Add another object here for the "banner_image", etc.
+      ],
+    };
+
+    // This one line runs the entire sync process
+    mediaSync(eventsMediaConfig, scriptInput);
+    ```
+
+### Step 2: Create the Data Script
+
+This script handles all other fields and relationships.
+
+1.  Create a new file in the `src/` directory: `events-sync.ts`.
+2.  Add the following code, customizing the `FIELD_MAP` and config object.
+
+    ```typescript
+    // src/events-sync.ts
+
+    import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
+
+    // The single, valid call to input.config()
+    const scriptInput = input.config();
+
+    // The FIELD_MAP is the heart of the configuration.
+    // It maps 'Airtable Field Name' to the 'WordPress Payload Key'.
+    const FIELD_MAP: FieldMap = {
+      /* --- Core WP Fields --- */
+      'event_title':   'post_title',
+      'event_slug':    'post_name',
+      'event_date':    'post_date',
+      'event_status':  'post_status',
+      'event_sku':     'sku',
+
+      /* --- Taxonomy Fields --- */
+      'event_category': 'event-categories',
+
+      /* --- Media Fields (using the IDs from the media script!) --- */
+      'event_featured_image_wp_id': {
+        airtableIdField: 'event_featured_image_wp_id', // The field populated by events-media.js
+        wpKey: '_thumbnail_id', // The special WordPress key for featured image
+      },
+    };
+
+    const eventsSyncConfig: QuickSyncConfig = {
+      airtableTable: 'Events',
+      skuField:      'event_sku',   // The Airtable field holding the unique ID
+      titleField:    'event_title', // The Airtable field for the post's title
+      fieldMap:      FIELD_MAP,
+      envEndpoints: {
+        prod:    'https://four12global.com/wp-json/four12/v1/event-sync',
+        staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/event-sync',
+      },
+    };
+
+    // Run the sync process
+    quickSync(eventsSyncConfig, scriptInput);
+    ```
 
 ---
 
-## How to Use `TEMPLATE_MediaScript.js`
+## Deployment to Airtable
 
-Follow these steps to set up the media sync for a new CPT (e.g., "Events").
+The code you write in `src/` is **not** what you paste into Airtable. You must use the compiled output.
 
-1.  **Copy Template:** Open `TEMPLATE_MediaScript.js` and copy its entire contents.
-2.  **Create Airtable Script:** In your Airtable base, go to **Automations**. Create a new automation or edit an existing one. Add a "Run a script" action.
-3.  **Paste Code:** Paste the copied code into the Airtable script editor.
-4.  **Add Input Variable:** The script requires one input variable. In the left panel, add a variable named `recordId` and set its value to the `Airtable record ID` from the automation's trigger step.
-5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block at the top of the script.
-    ```javascript
-    // 1. WordPress Base URL
-    const WP_BASE_URL = "https://four12global.com";
+1.  **Build the Code:** Run `npm run build` in your terminal. This will create/update the JavaScript files in the `dist/` directory.
 
-    // 2. Airtable Table Name
-    const TABLE_NAME = "Events"; // Your CPT's table name
+2.  **Copy the Script:**
+    *   Open the compiled file (e.g., `dist/events-media.js`).
+    *   Select all (`Cmd+A` or `Ctrl+A`) and copy the entire contents.
 
-    // 3. Secret Name
-    const API_SECRET_NAME = "API-SYNC";
+3.  **Paste into Airtable:**
+    *   In your Airtable Automation, add a "Run a script" action.
+    *   Delete any placeholder code and paste your copied script.
 
-    // 4. Image Field Configurations
-    const IMAGE_FIELD_CONFIGS = [
-      {
-        airtableAttachmentField: "event_featured_image", // Attachment field in your Events table
-        wpIdField: "event_featured_image_wp_id",         // Number field to store the WP ID
-        wpLinkField: "event_featured_image_link",        // URL/Text field for the WP URL
-        externalCacheField: "event_featured_image_ext",  // URL/Text field for the Airtable URL
-      }
-      // Add more objects if the Event CPT has more images
-    ];
+4.  **Configure Inputs:** The scripts require two input variables to be configured in the Airtable UI:
+    *   `recordId`: Set its value to the `Airtable record ID` from the automation's trigger step.
+    *   `env`: A text string. Type `prod` for your production base or `staging` for your staging base. This allows the script to target the correct WordPress environment.
 
-    // 5. Control Fields
-    const CONTROL_FIELDS = {
-      lastModifiedField: "event_media_last_modified", // A "Last Modified Time" field watching your attachment fields
-      publishTimestampField: "event_media_publish_ts",  // A "Date" field
-    };
-    ```
-6.  **Set Secret:** Ensure your automation has access to the `API-SYNC` secret containing your WordPress `username:application_password`.
-
----
-
-## How to Use `TEMPLATE_QuickSyncScript.js`
-
-Follow these steps to set up the main data sync. This action should run **after** the Media Script action in the same automation.
-
-1.  **Copy Template:** Open `TEMPLATE_QuickSyncScript.js` and copy its entire contents.
-2.  **Create Airtable Script:** Add a new "Run a script" action to your automation.
-3.  **Paste Code:** Paste the copied code into the script editor.
-4.  **Add Input Variable:** Just like before, add the `recordId` input variable.
-5.  **Configure:** In the script editor, carefully fill out the `--- CONFIGURATION ---` block. The `FIELD_MAP` is the most important part.
-    ```javascript
-    // 1. WordPress Base URL
-    const WP_BASE_URL = "https://four12global.com";
-
-    // 2. The specific route for your sync endpoint
-    const WP_ROUTE_SUFFIX = "/wp-json/four12/v1/event-sync"; // The endpoint for your CPT
-
-    // 3. Airtable Table Name
-    const TABLE_NAME = "Events";
-
-    // 4. Secret Name
-    const API_SECRET_NAME = "API-SYNC";
-
-    // 5. The Airtable field for the unique SKU.
-    const SKU_FIELD = "event_sku";
-
-    // 6. The Airtable field for the WordPress Post ID.
-    const WP_ID_FIELD = "wp_id";
-
-    // 7. Field Map: 'Airtable Field Name': 'wp_payload_key'
-    const FIELD_MAP = {
-      'event_title':          'post_title',
-      'event_slug':           'post_name',
-      'event_categories':     'event-categories',
-      'event_featured_image_wp_id': '_thumbnail_id', // Use the ID field from the media script!
-      'event_description':    'event-description',
-    };
-    ```
-
-## Debugging
-
--   Always check the **Run history** of your Airtable automation.
--   The script logs its progress to the console, which is visible in the run history.
--   The script also uses `output.set()` to provide structured results, like `payloadPreview` and `wpResponse`, which are invaluable for troubleshooting.
+Repeat this process for the data sync script (`dist/events-sync.js`), ensuring it runs as the next step in the same automation.
