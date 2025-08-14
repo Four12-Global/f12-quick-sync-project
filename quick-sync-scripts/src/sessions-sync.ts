@@ -4,7 +4,7 @@ const FIELD_MAP = {
   /* ── Core WP fields ───────────────────────────── */
   session_title:       'post_title',
   session_slug:        'post_name',
-  session_description: 'post_content',
+  session_description_admin: 'session_description_admin',
   excerpt:             'post_excerpt',
 
   /* Custom permalink (Permalink Manager / AIOSEO) */

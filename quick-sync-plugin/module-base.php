@@ -14,9 +14,11 @@ abstract class F12_Quick_Sync_Module_Base {
     protected $core_field_map = [];
     protected $taxonomy_map = [];
     protected $image_meta_map = [];
-    protected $post_content_key;
+    protected $post_content_key = null; // We no longer need this for markdown
     protected $allowed_post_statuses = ['publish', 'draft', 'trash', 'private'];
     protected bool $duplicate_post_content_to_meta = false;
+    protected $markdown_map = [];
+    private $processed_meta = [];
     
     /** @var array  Key = payload field, value = relation config */
     protected $jet_engine_relation_map = [];
@@ -236,18 +238,30 @@ abstract class F12_Quick_Sync_Module_Base {
             }
         }
         
-        // Post content
-        if ( $this->post_content_key && array_key_exists( $this->post_content_key, $payload ) ) {
-            $value = $payload[ $this->post_content_key ];
-            $post_data['post_content'] = $value;
+        // --- Markdown processing (declarative) ---
+        if ( ! empty( $this->markdown_map ) && class_exists('Parsedown') ) {
+            $parser = Parsedown::instance()->setSafeMode(true);
 
-            if ( ! in_array( 'post_content (from ' . $this->post_content_key . ')', $changed_summary['special'] ) ) {
-                $changed_summary['special'][] = 'post_content (from ' . $this->post_content_key . ')';
-            }
+            foreach ( $this->markdown_map as $source_key => $destinations ) {
+                if ( ! array_key_exists( $source_key, $payload ) ) {
+                    continue;
+                }
 
-            // Keep or discard the key depending on module preference
-            if ( ! $this->duplicate_post_content_to_meta ) {
-                unset( $payload[ $this->post_content_key ] );
+                $raw_markdown = $payload[ $source_key ];
+                $html = is_string( $raw_markdown ) ? wp_kses_post( $parser->text( $raw_markdown ) ) : '';
+
+                foreach ( (array) $destinations as $dest_key ) {
+                    if ( $dest_key === 'post_content' ) {
+                        $post_data['post_content'] = $html;
+                    } else {
+                        $this->processed_meta[ $dest_key ] = $html;
+                    }
+                }
+
+                unset( $payload[ $source_key ] );
+                if ( ! in_array( "markdown_parsed:{$source_key}", $changed_summary['special'] ) ) {
+                    $changed_summary['special'][] = "markdown_parsed:{$source_key}";
+                }
             }
         }
 
@@ -424,6 +438,17 @@ abstract class F12_Quick_Sync_Module_Base {
             update_post_meta( $post_id, $this->sku_meta_key, $sku );
         }
         unset($payload[$this->sku_meta_key]);
+
+        // --- Save processed markdown meta first ---
+        if ( ! empty( $this->processed_meta ) ) {
+            foreach ( $this->processed_meta as $meta_key => $html_value ) {
+                update_post_meta( $post_id, $meta_key, $html_value );
+                if ( ! in_array( "{$meta_key} (from markdown)", $changed_summary['meta'] ) ) {
+                    $changed_summary['meta'][] = "{$meta_key} (from markdown)";
+                }
+            }
+            $this->processed_meta = [];
+        }
 
         // --- Call the hook for special handling ---
         $this->_process_special_meta_fields( $post_id, $payload, $sku, $changed_summary );

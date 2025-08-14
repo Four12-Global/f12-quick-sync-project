@@ -46,8 +46,10 @@ class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
             'manual1-image',
         ];
 
-        $this->post_content_key = 'series-description';
-        $this->duplicate_post_content_to_meta = true;
+        // Markdown mapping configuration
+        $this->markdown_map = [
+            'series_description' => ['post_content', 'series_description']
+        ];
     }
 
     // No other methods are needed here. The timezone and AIOSEO logic

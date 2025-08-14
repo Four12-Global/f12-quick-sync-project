@@ -35,7 +35,11 @@ class F12_Leader_Sync_Module extends F12_Quick_Sync_Module_Base {
             '_thumbnail_id',
         ];
 
-        $this->post_content_key = null;
+
+		// Markdown mapping configuration
+		$this->markdown_map = [
+			'leader_description' => ['leader_description']
+		];
     }
 
     /**

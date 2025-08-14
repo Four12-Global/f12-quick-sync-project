@@ -53,9 +53,7 @@ class F12_Worship_Sync_Module extends F12_Quick_Sync_Module_Base {
             'chord_sheet_pdf',   // The chord sheet PDF.
         ];
 
-        // --- 5. Post Content ---
-        // This CPT does not have a main content field, so we set this to null.
-        $this->post_content_key = null;
+        // This CPT does not use markdown or post_content processing.
         
         // Note: The simple meta fields from your Airtable script (`apple_music_link`, 
         // `spotify_link`, `youtube_music_link`, and `chord_sheet_pdf`) do not need

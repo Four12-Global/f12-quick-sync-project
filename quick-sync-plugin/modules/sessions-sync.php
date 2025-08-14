@@ -36,7 +36,7 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'series-categories' => 'series-categories',
             'topics'            => 'topics',
             'series-templates'  => 'series-templates',
-            'author-speaker'    => 'author-speaker',
+            'author-speaker'    => 'author_speaker',
         ];
 
         $this->image_meta_map = [
@@ -47,8 +47,6 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
             'manual1-image',
         ];
 
-        $this->post_content_key = 'post_content';
-
         // ── JetEngine: Series (parent) ⇢ Sessions (child) ──
         $this->jet_engine_relation_map = [
             'jet_relation_series_parent' => [
@@ -57,6 +55,11 @@ class F12_Sessions_Sync_Module extends F12_Quick_Sync_Module_Base {
                 'parent_sku_meta'  => 'sku',
                 // no 'mode' key — helper is hard-coded to replace
             ],
+        ];
+
+        // Markdown mapping configuration
+        $this->markdown_map = [
+            'session_description_admin' => ['post_content']
         ];
 
     }
