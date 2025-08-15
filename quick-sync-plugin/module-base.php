@@ -240,15 +240,16 @@ abstract class F12_Quick_Sync_Module_Base {
         
         // --- Markdown processing (declarative) ---
         if ( ! empty( $this->markdown_map ) && class_exists('Parsedown') ) {
-            $parser = Parsedown::instance()->setSafeMode(true);
+            $parser = Parsedown::instance();
 
             foreach ( $this->markdown_map as $source_key => $destinations ) {
                 if ( ! array_key_exists( $source_key, $payload ) ) {
                     continue;
                 }
 
-                $raw_markdown = $payload[ $source_key ];
-                $html = is_string( $raw_markdown ) ? wp_kses_post( $parser->text( $raw_markdown ) ) : '';
+                $raw = is_string( $payload[ $source_key ] ?? '' ) ? $payload[ $source_key ] : '';
+                $parsed = $parser->text( $raw );
+                $html   = wp_kses_post( $parsed );
 
                 foreach ( (array) $destinations as $dest_key ) {
                     if ( $dest_key === 'post_content' ) {

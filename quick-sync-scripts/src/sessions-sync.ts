@@ -8,7 +8,7 @@ const FIELD_MAP = {
   excerpt:             'post_excerpt',
 
   /* Custom permalink (Permalink Manager / AIOSEO) */
-  session_permalink:   '_custom_uri',
+  session_permalink:   'custom_permalink_uri',
   _aioseo_description: '_aioseo_description',
 
 

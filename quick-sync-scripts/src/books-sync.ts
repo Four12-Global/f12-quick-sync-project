@@ -21,7 +21,7 @@ const FIELD_MAP: FieldMap = {
 
   /* --- SEO & Permalinks --- */
   '_aioseo_description': '_aioseo_description',
-  'Custom URI': 'custom_permalink_uri', // For Permalink Manager plugin
+  'permalink': 'custom_permalink_uri', // For Permalink Manager plugin
 
   /* --- Taxonomies --- */
   'global_categories': 'global-categories',
