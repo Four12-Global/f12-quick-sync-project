@@ -30,7 +30,6 @@ class F12_Books_Sync_Module extends F12_Quick_Sync_Module_Base {
         $this->core_field_map = [
             'post_title'   => 'post_title',
             'post_name'    => 'post_name',
-            'post_content' => 'post_content',
             'post_excerpt' => 'post_excerpt',
             'post_status'  => 'post_status',
             'post_date'    => 'post_date',
@@ -43,7 +42,7 @@ class F12_Books_Sync_Module extends F12_Quick_Sync_Module_Base {
             // Payload Key      => WordPress Taxonomy Slug
             'global-categories' => 'global-categories',
             'topics'            => 'topics',
-            'author'            => 'author', // Assumes you have a custom 'author' taxonomy.
+            'author'            => 'author_speaker', // Assumes you have a custom 'author' taxonomy.
         ];
 
         // --- 4. Image/Media Meta Mapping ---

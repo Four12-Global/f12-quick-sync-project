@@ -43,6 +43,7 @@ The content is organized as follows:
 quick-sync-plugin/
   modules/
     author-sync.php
+    books-sync.php
     leaders-sync.php
     series-sync.php
     sessions-sync.php
@@ -59,6 +60,8 @@ quick-sync-scripts/
       sync-helpers.ts
     author-media.ts
     author-sync.ts
+    books-media.ts
+    books-sync.ts
     series-media.ts
     series-sync.ts
     sessions-media.ts
@@ -78,235 +81,6 @@ README.md
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path=".gitignore">
-# Dependencies
-/node_modules
-/quick-sync-plugin/vendor
-
-# Build output
-/quick-sync-scripts/dist
-
-# Tool-specific generated files
-**/repomix-output.xml
-
-# Log files
-*.log
-debug.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS / Editor specific
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-</file>
-
-<file path="airtable-fields.md">
-# Airtable Resources Base - Common Fields Analysis
-
-## Overview
-This document analyzes the common fields across all tables in the Resources Base to identify standard fields that should be included when creating new tables. These fields are not content-specific but rather provide consistent structure, tracking, and functionality across all resources.
-
-## Base Information
-- **Base Name**: Resources Base
-- **Base ID**: `apphmPNiTdmcknmfs`
-- **Total Tables**: 15
-
-## Tables Analyzed
-1. Series
-2. Sessions
-3. Articles
-4. News
-5. Series_2
-6. Sessions_2
-7. author-speaker
-8. Topics
-9. Leaders
-10. Worship
-11. Books
-12. Ministry
-13. subsplash_resource_lists
-14. subsplash_list_rows
-15. series_type
-
-## Standard Fields for New Tables
-
-### 1. Core Identification Fields
-These fields provide unique identification and basic metadata for each record:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `auto_number` | AutoNumber | Auto-incrementing unique identifier | 1, 2, 3... | N/A |
-| `sku` | Formula | Unique SKU code (usually based on auto_number) | "S0001", "R0001", "A0001" | `sku` |
-| `id` | Number | WordPress ID or external system ID | 12345 | N/A |
-| `title` / `name` | SingleLineText/MultilineText | Primary title/name of the resource | "Series Title" | `post_title` |
-
-### 2. URL and Permalink Fields
-These fields handle web routing and SEO:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `slug` | Formula/SingleLineText | URL-friendly version of title | "series-title" | `post_name` |
-| `permalink` | URL/Formula | Full URL path | "/resources/series/series-title" | `custom_permalink_uri` |
-
-### 3. Content Management Fields
-These fields handle content status and workflow:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `website_status` | SingleSelect | Publication status | "publish", "draft", "private" | `post_status` |
-| `excerpt` | MultilineText | Short description/summary | "Brief description..." | `post_excerpt` |
-| `content` / `description` | MultilineText | Main content body | "Full content..." | Custom meta |
-| `content_admin` | RichText | Admin-only content | "Internal notes..." | Custom meta |
-
-### 4. Timestamp Tracking Fields
-These fields provide comprehensive tracking of when content was created, modified, and published:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `last_modified` | LastModifiedTime | When any field was last changed | Auto-generated | N/A |
-| `media_last_modified` | LastModifiedTime | When media fields were last changed | Auto-generated | N/A |
-| `admin_last_modified` | LastModifiedTime | When admin fields were last changed | Auto-generated | N/A |
-| `publish_timestamp` | DateTime | When content was published | 2024-01-15 10:00:00 | `last_published` |
-| `media_publish_timestamp` | DateTime | When media was published | 2024-01-15 10:00:00 | N/A |
-| `admin_publish_timestamp` | DateTime | When admin content was published | 2024-01-15 10:00:00 | N/A |
-
-### 5. Status and Workflow Fields
-These fields provide status indicators and workflow management:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `update_status` | Formula | Human-readable update status | "⚡ Just Updated", "🚀 Updated Today" | N/A |
-| `publish_status` | Formula | Publication readiness status | "✅ Ready", "🎯 Needs Publish" | N/A |
-| `sync_status` | SingleSelect | External system sync status | "Success", "Processing", "Failed" | N/A |
-| `import_status` | SingleLineText | Import process status | "Completed", "Pending" | N/A |
-
-### 6. Media Management Fields
-These fields handle images and media assets. **Note: Use the `_wp_id` variant for WordPress sync:**
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `featured_image_wp_id` | Number | WordPress media ID (preferred) | 12345 | `_thumbnail_id` |
-| `featured_image_link` | URL | Featured image URL (fallback) | "https://example.com/image.jpg" | Custom meta |
-| `featured_image_attachment` | MultipleAttachments | Featured image file | Image file | N/A |
-| `featured_image_external` | SingleLineText | External image reference | "external_image_id" | N/A |
-| `listing_image_wp_id` | Number | WordPress media ID for listing | 12346 | `listing-image` |
-| `listing_image_link` | URL | Listing image URL | "https://example.com/listing.jpg" | Custom meta |
-| `banner_image_wp_id` | Number | WordPress media ID for banner | 12347 | `banner-image` |
-| `banner_image_link` | URL | Banner image URL | "https://example.com/banner.jpg" | Custom meta |
-| `no_words_image_wp_id` | Number | WordPress media ID (no text) | 12348 | `no-words-image` |
-| `no_words_image_link` | URL | No-text image URL | "https://example.com/nowords.jpg" | Custom meta |
-
-### 7. Category and Classification Fields
-These fields provide content organization and navigation:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `category_helper` | SingleLineText | Raw category string | "Resources>Series>Youth" | N/A |
-| `category` | SingleLineText | Processed category | "Youth" | Custom taxonomy |
-| `category_1`, `category_2`, etc. | Formula | Individual category levels | "Resources", "Series" | N/A |
-| `global_categories` | Formula | Full category hierarchy | "Resources > Series > Youth" | `global-categories` |
-| `series_category` | SingleSelect | Predefined category options | "Featured Messages" | `series-categories` |
-
-### 8. Relationship Fields
-These fields connect content to other resources:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `series` | MultipleRecordLinks | Related series | Links to Series table | `jet_relation_series_parent` |
-| `series_sku` | MultipleLookupValues | Series SKU from relationship | "S0001" | `jet_relation_series_parent` |
-| `sessions` | MultipleRecordLinks | Related sessions | Links to Sessions table | Custom meta |
-| `topics` | MultipleRecordLinks | Related topics | Links to Topics table | `topics` |
-| `author` / `speaker` | MultipleRecordLinks | Content creators | Links to author-speaker table | `author-speaker` |
-
-### 9. External Integration Fields
-These fields handle connections to external systems:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `wp_id` | Number | WordPress ID | 12345 | N/A |
-| `subsplash_*` | Various | Subsplash platform fields | Various Subsplash-specific fields | Custom meta |
-
-### 10. SEO and Metadata Fields
-These fields handle search engine optimization:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `seo_description` | Formula/MultilineText | SEO meta description | "SEO description..." | Custom meta |
-| `_aioseo_description` | MultilineText | All in One SEO description | "AIOSEO description..." | `_aioseo_description` |
-| `aioseo_description` | SingleLineText | Alternative SEO description | "Alternative SEO..." | Custom meta |
-
-### 11. Additional Content Fields
-These fields provide extra content and functionality:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `pdf_title_1` | SingleSelect | PDF document title | "Worksheet", "Discussion Pages" | `custom-pdf-title-1` |
-| `pdf_link_1` | SingleLineText | PDF document link | "https://example.com/doc.pdf" | `link_ten` |
-| `youtube_link` | URL | YouTube video link | "https://youtube.com/watch?v=..." | `link_one` |
-| `spotify_podcast` | URL | Spotify podcast link | "https://open.spotify.com/..." | `spotify-podcast-link` |
-| `apple_podcast` | URL | Apple Podcasts link | "https://podcasts.apple.com/..." | `apple-podcast-link` |
-
-## Recommended Field Order for New Tables
-
-When creating a new table, consider this field order:
-
-1. **Core Identification** (auto_number, sku, id, title)
-2. **Content** (excerpt, content, content_admin)
-3. **URLs** (slug, permalink)
-4. **Categories** (category_helper, category, global_categories)
-5. **Media** (featured_image_wp_id, listing_image_wp_id, banner_image_wp_id, no_words_image_wp_id)
-6. **Relationships** (series, sessions, topics, author)
-7. **Timestamps** (last_modified, media_last_modified, admin_last_modified)
-8. **Publishing** (publish_timestamp, media_publish_timestamp, admin_publish_timestamp, api_publish_timestamp)
-9. **Status** (website_status, update_status, publish_status, sync_status)
-10. **External IDs** (wp_id, subsplash_*)
-11. **SEO** (seo_description, _aioseo_description)
-12. **Additional Content** (pdf_*, youtube_link, spotify_podcast, apple_podcast)
-
-## Field Type Recommendations
-
-- Use **Formula** fields for computed values (SKUs, status indicators, derived fields)
-- Use **LastModifiedTime** for automatic timestamp tracking
-- Use **MultipleAttachments** for file uploads
-- Use **MultipleRecordLinks** for relationships to other tables
-- Use **SingleSelect** for predefined options (status, categories)
-- Use **DateTime** for manual timestamp entry
-- Use **URL** for external links
-- Use **RichText** for admin content that needs formatting
-- Use **Number** for WordPress media IDs and external IDs
-
-## WordPress Integration Notes
-
-### **Media Field Pattern:**
-Always create both the `_wp_id` and `_link` variants for media fields:
-- `featured_image_wp_id` (Number) → WordPress `_thumbnail_id`
-- `featured_image_link` (URL) → Fallback/cache field
-
-### **Taxonomy Mapping:**
-- `global_categories` → WordPress `global-categories` taxonomy
-- `topics` → WordPress `topics` taxonomy
-- `author-speaker` → WordPress `author-speaker` taxonomy
-
-### **Custom Meta Fields:**
-- Use descriptive names that match WordPress meta keys
-- Consider using the `link_*` pattern for external resources
-- Use `custom-*` prefix for custom content fields
-
-## Notes
-
-- **SKU Pattern**: Most tables use a letter prefix + 4-digit number (S0001, R0001, A0001, etc.)
-- **Timestamp Consistency**: All tables use the same timestamp field structure for consistency
-- **Media Handling**: Standardized approach with wp_id fields for WordPress sync, link fields for fallbacks
-- **Category Structure**: Hierarchical category system with helper fields and derived category levels
-- **Status Workflow**: Consistent status tracking across all content types
-- **WordPress Sync**: Fields are designed to map directly to WordPress post types and taxonomies
-
-This analysis provides a foundation for maintaining consistency when creating new tables in the Resources Base while ensuring all necessary functionality is preserved and proper WordPress integration is maintained.
-</file>
 
 <file path="quick-sync-plugin/modules/author-sync.php">
 <?php
@@ -554,6 +328,81 @@ class F12_Author_Speaker_Sync_Module {
 }
 </file>
 
+<file path="quick-sync-plugin/modules/books-sync.php">
+<?php
+/**
+ * Quick Sync Module: Books CPT
+ *
+ * Provides the specific configuration for syncing the 'books' Custom Post Type.
+ * It inherits all universal processing logic (post lookup, media sideloading,
+ * AIOSEO integration, etc.) from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Books_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'books' CPT.
+     * This function maps the incoming payload from the Airtable script to the correct
+     * WordPress fields, taxonomies, and meta keys.
+     */
+    protected function init() {
+        // --- 1. Core Configuration ---
+        // Defines the CPT slug, the API endpoint, and the SKU meta key.
+        $this->cpt = 'books'; // The slug for your "Books" Custom Post Type in WordPress.
+        $this->endpoint_slug = 'books-sync'; // Must match the endpoint in books-sync.ts.
+        $this->sku_meta_key = 'sku'; // The meta key used to store the unique SKU.
+
+        // --- 2. Core Field Mapping ---
+        // Maps payload keys to core WordPress post fields (in the wp_posts table).
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_status'  => 'post_status',
+            'post_date'    => 'post_date',
+        ];
+
+        // --- 3. Taxonomy Mapping ---
+        // Maps a payload key to a WordPress taxonomy slug. The base class
+        // will automatically find or create the terms and assign them to the post.
+        $this->taxonomy_map = [
+            // Payload Key      => WordPress Taxonomy Slug
+            'global-categories' => 'global-categories',
+            'topics'            => 'topics',
+            'author'            => 'author', // Assumes you have a custom 'author' taxonomy.
+        ];
+
+        // --- 4. Image/Media Meta Mapping ---
+        // Lists meta keys that correspond to media. If the payload for one of these
+        // keys contains a URL instead of a WP Media ID, the base class will
+        // automatically download the file and save the new attachment ID.
+        $this->image_meta_map = [
+            '_thumbnail_id', // The featured image.
+            'pdf-image-1',   // The custom image for the PDF link.
+        ];
+
+        // --- 5. Markdown Mapping (Optional but Recommended) ---
+        // Tells the base class to treat the incoming 'post_content' field as
+        // Markdown, convert it to safe HTML, and save it to the post's content.
+        $this->markdown_map = [
+            // Payload Key    => Destination(s) in WordPress
+            'post_content' => ['post_content'],
+        ];
+        
+        // --- NO NEED TO LIST OTHER META FIELDS ---
+        // All other fields from your payload (like 'tag-line', 'link_five',
+        // 'version-1-title', etc.) will be automatically saved as post meta
+        // by the base class. You do not need to declare them here.
+    }
+
+    // No other methods are needed. The F12_Quick_Sync_Module_Base handles everything else.
+}
+</file>
+
 <file path="quick-sync-plugin/core-helpers.php">
 <?php
 
@@ -742,6 +591,141 @@ const authorSyncConfig: QuickSyncConfig = {
 quickSync(authorSyncConfig, scriptInput);
 </file>
 
+<file path="quick-sync-scripts/src/books-media.ts">
+// src/books-media.ts
+
+import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+const booksMediaConfig: MediaSyncConfig = {
+  // 1. The name of your Airtable table
+  airtableTable: 'Books',
+
+  // 2. The standard WordPress media endpoints for production and staging
+  envMediaEndpoints: {
+    prod:    'https://four12global.com/wp-json/wp/v2/media',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
+  },
+
+  // 3. Airtable fields used to track when a media sync is needed
+  lastModifiedField:     'media_last_modified',
+  publishTimestampField: 'media_publish_timestamp',
+
+  // 4. A list of all image/attachment fields for the "Books" CPT
+  imageFields: [
+    // Configuration for the main featured image
+    {
+      attachmentField:    'featured_image_attachment',
+      wpIdField:          'featured_image_wp_id',
+      wpUrlField:         'featured_image_link',
+      airtableCacheField: 'featured_image_external',
+      isMultiple:         false,
+    },
+    // Configuration for the custom PDF's preview image
+    {
+      attachmentField:    'pdf_image_1_attachment',
+      wpIdField:          'pdf_image_1_wp_id',
+      wpUrlField:         'pdf_image_1_link',
+      airtableCacheField: 'pdf_image_1_external',
+      isMultiple:         false,
+    },
+  ],
+};
+
+// This one line runs the entire media sync process using the configuration above.
+mediaSync(booksMediaConfig, scriptInput);
+</file>
+
+<file path="quick-sync-scripts/src/books-sync.ts">
+// src/books-sync.ts
+
+import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
+
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+// The FIELD_MAP is the heart of the configuration.
+// It maps the 'Airtable Field Name' to the 'WordPress Payload Key'.
+const FIELD_MAP: FieldMap = {
+  /* --- Core WordPress Fields --- */
+  'title': 'post_title',
+  'slug': 'post_name',
+  'content': 'post_content',
+  'excerpt': 'post_excerpt',
+  'status': 'post_status',
+  'post_date': 'post_date',
+
+  /* --- SKU (Essential for de-duplication) --- */
+  'sku': 'sku',
+
+  /* --- SEO & Permalinks --- */
+  '_aioseo_description': '_aioseo_description',
+  'Custom URI': 'custom_permalink_uri', // For Permalink Manager plugin
+
+  /* --- Taxonomies --- */
+  'global_categories': 'global-categories',
+  'author': 'author', // Maps to 'author' taxonomy
+  'topics': 'topics',
+
+  /* --- Media Fields (using the IDs from the media script) --- */
+  'featured_image': {
+    airtableIdField:   'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id', // Special WP key for the featured image
+  },
+  'pdf_image_1': {
+    airtableIdField:   'pdf_image_1_wp_id',
+    airtableLinkField: 'pdf_image_1_link',
+    wpKey: 'pdf-image-1', // A custom meta field for the PDF's image
+  },
+
+  /* --- Custom Meta Fields (Links & Content) --- */
+  'tag-line': 'tag-line',
+  'link_five - Print PDF Link': 'link_five',
+  'link_twelve - Hardcopy Link': 'link_twelve',
+  'link_six - Web PDF Link': 'link_six',
+  'link_eight - Kindle PDF Link': 'link_eight',
+  'link_thirteen - Order Here': 'link_thirteen',
+  'custom-pdf-title-1': 'custom-pdf-title-1',
+  'link_ten - Custom PDF Link 1': 'link_ten',
+
+  /* --- Version 1 Content (as custom meta) --- */
+  'version-1-title': 'version-1-title',
+  'version-1-tag-line': 'version-1-tag-line',
+  'version-1-content': 'version-1-content',
+  'version-1-footer': 'version-1-footer',
+
+  /* --- Timestamps (for bookkeeping) --- */
+  'last_synced': 'last_synced',
+  'publish_timestamp': 'last_published',
+};
+
+const booksSyncConfig: QuickSyncConfig = {
+  // The name of your Airtable table
+  airtableTable: 'Books',
+
+  // The Airtable fields holding the unique ID and title
+  skuField: 'sku',
+  titleField: 'title',
+
+  // The field map defined above
+  fieldMap: FIELD_MAP,
+
+  // The WordPress endpoints for this CPT
+  // NOTE: You will need to create a 'books-sync.php' module in your WP plugin
+  // to create this endpoint.
+  envEndpoints: {
+    prod:    'https://four12global.com/wp-json/four12/v1/books-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/books-sync',
+  },
+};
+
+// This one line runs the entire data sync process.
+quickSync(booksSyncConfig, scriptInput);
+</file>
+
 <file path="quick-sync-scripts/src/sessions-media.ts">
 // src/sessions-media.ts
 
@@ -869,195 +853,6 @@ declare const output: any;
 declare const base:   any;
 </file>
 
-<file path="quick-sync-scripts/README.md">
-Of course. Here is a comprehensive and well-thought-out `README.md` for the `quick-sync-scripts` directory.
-
-This document replaces the outdated instructions, accurately reflects the modern TypeScript architecture, and provides a clear, step-by-step guide for developers to maintain and extend the Airtable scripts.
-
----
-
-# Airtable Quick Sync Scripts
-
-This is a TypeScript project that contains all the "client-side" scripts for the Airtable-to-WordPress synchronization system. These scripts run inside Airtable Automations, gather record data, and send it to the `quick-sync-plugin` on the WordPress server.
-
-## Core Architecture
-
-This is not a collection of standalone scripts. It is a modern TypeScript project that must be **compiled** before use. This approach provides significant advantages:
-
-*   **Type Safety:** TypeScript prevents common errors before the code ever runs in Airtable.
-*   **Shared Logic:** Common functions for authentication, data handling, and media uploads are centralized in `src/lib/` for consistency and easy updates.
-*   **Modularity:** Each CPT or Taxonomy has its own small, clean entry-point file, which is easy to read and manage.
-*   **Build Process:** A standardized build process (`npm run build`) minifies the code, making it efficient to paste into Airtable.
-
-```mermaid
-flowchart LR
-    subgraph "Development (Your Computer)"
-        A[src/lib/sync-helpers.ts] --> B[src/series-sync.ts];
-        C[src/lib/media-helpers.ts] --> D[src/series-media.ts];
-        B & D -- "npm run build" --> E((esbuild Compiler));
-    end
-
-    subgraph "Deployment (Airtable)"
-        F[dist/series-sync.js];
-        G[dist/series-media.js];
-        E --> F & G;
-        F & G -- "Copy & Paste" --> H{Airtable Automation Scripts};
-    end
-```
-
----
-
-## Developer Setup
-
-**Prerequisites:** You must have [Node.js](https://nodejs.org/) and `npm` installed.
-
-1.  **Install Dependencies:** From within this directory (`quick-sync-scripts/`), run:
-    ```bash
-    npm install
-    ```
-
-2.  **Build the Scripts:** To compile all TypeScript files from `src/` into JavaScript files in `dist/`, run:
-    ```bash
-    npm run build
-    ```
-
-3.  **Watch for Changes (Development):** To automatically re-compile whenever you save a file, run:
-    ```bash
-    npm run watch
-    ```
-
----
-
-## The Two-Step Sync Process
-
-For each record, we use a two-step automation in Airtable to ensure media is handled correctly.
-
-1.  **Media Sync Script:** Runs first. It uploads images/files to WordPress and saves the returned WordPress Media IDs back to the Airtable record.
-2.  **Data Sync Script:** Runs second. It sends all the record's text data, taxonomy data, and the stable WordPress Media IDs from Step 1 to the custom endpoint in our plugin.
-
-## How to Add a New Sync Workflow (e.g., for an "Events" CPT)
-
-Follow this two-step process to create the necessary scripts for a new CPT.
-
-### Step 1: Create the Media Script
-
-This script handles the image attachments.
-
-1.  Create a new file in the `src/` directory: `events-media.ts`.
-2.  Add the following code, customizing the `eventsMediaConfig` object for your needs.
-
-    ```typescript
-    // src/events-media.ts
-
-    import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
-
-    // The single, valid call to input.config() for the entire script run.
-    const scriptInput = input.config();
-
-    const eventsMediaConfig: MediaSyncConfig = {
-      // 1. The name of your Airtable table
-      airtableTable: 'Events',
-
-      // 2. The standard WordPress media endpoints
-      envMediaEndpoints: {
-        prod:    'https://four12global.com/wp-json/wp/v2/media',
-        staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
-      },
-
-      // 3. Airtable fields used to track when a sync is needed
-      lastModifiedField:     'media_last_modified',     // A "Last Modified Time" field
-      publishTimestampField: 'media_publish_timestamp', // A "Date" field (set to "Last Modified")
-
-      // 4. A list of all image/attachment fields for this CPT
-      imageFields: [
-        {
-          attachmentField:    'event_featured_image',    // The attachment field
-          wpIdField:          'event_featured_image_wp_id', // A number field for the WP ID
-          wpUrlField:         'event_featured_image_link',  // A URL field for the WP URL
-          airtableCacheField: 'event_featured_image_ext',   // A text field for the Airtable cache
-          isMultiple:         false,
-        },
-        // Add another object here for the "banner_image", etc.
-      ],
-    };
-
-    // This one line runs the entire sync process
-    mediaSync(eventsMediaConfig, scriptInput);
-    ```
-
-### Step 2: Create the Data Script
-
-This script handles all other fields and relationships.
-
-1.  Create a new file in the `src/` directory: `events-sync.ts`.
-2.  Add the following code, customizing the `FIELD_MAP` and config object.
-
-    ```typescript
-    // src/events-sync.ts
-
-    import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
-
-    // The single, valid call to input.config()
-    const scriptInput = input.config();
-
-    // The FIELD_MAP is the heart of the configuration.
-    // It maps 'Airtable Field Name' to the 'WordPress Payload Key'.
-    const FIELD_MAP: FieldMap = {
-      /* --- Core WP Fields --- */
-      'event_title':   'post_title',
-      'event_slug':    'post_name',
-      'event_date':    'post_date',
-      'event_status':  'post_status',
-      'event_sku':     'sku',
-
-      /* --- Taxonomy Fields --- */
-      'event_category': 'event-categories',
-
-      /* --- Media Fields (using the IDs from the media script!) --- */
-      'event_featured_image_wp_id': {
-        airtableIdField: 'event_featured_image_wp_id', // The field populated by events-media.js
-        wpKey: '_thumbnail_id', // The special WordPress key for featured image
-      },
-    };
-
-    const eventsSyncConfig: QuickSyncConfig = {
-      airtableTable: 'Events',
-      skuField:      'event_sku',   // The Airtable field holding the unique ID
-      titleField:    'event_title', // The Airtable field for the post's title
-      fieldMap:      FIELD_MAP,
-      envEndpoints: {
-        prod:    'https://four12global.com/wp-json/four12/v1/event-sync',
-        staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/event-sync',
-      },
-    };
-
-    // Run the sync process
-    quickSync(eventsSyncConfig, scriptInput);
-    ```
-
----
-
-## Deployment to Airtable
-
-The code you write in `src/` is **not** what you paste into Airtable. You must use the compiled output.
-
-1.  **Build the Code:** Run `npm run build` in your terminal. This will create/update the JavaScript files in the `dist/` directory.
-
-2.  **Copy the Script:**
-    *   Open the compiled file (e.g., `dist/events-media.js`).
-    *   Select all (`Cmd+A` or `Ctrl+A`) and copy the entire contents.
-
-3.  **Paste into Airtable:**
-    *   In your Airtable Automation, add a "Run a script" action.
-    *   Delete any placeholder code and paste your copied script.
-
-4.  **Configure Inputs:** The scripts require two input variables to be configured in the Airtable UI:
-    *   `recordId`: Set its value to the `Airtable record ID` from the automation's trigger step.
-    *   `env`: A text string. Type `prod` for your production base or `staging` for your staging base. This allows the script to target the correct WordPress environment.
-
-Repeat this process for the data sync script (`dist/events-sync.js`), ensuring it runs as the next step in the same automation.
-</file>
-
 <file path="quick-sync-scripts/tsconfig.json">
 {
     "compilerOptions": {
@@ -1075,6 +870,235 @@ Repeat this process for the data sync script (`dist/events-sync.js`), ensuring i
 <file path=".gitattributes">
 # Auto detect text files and perform LF normalization
 * text=auto
+</file>
+
+<file path=".gitignore">
+# Dependencies
+/node_modules
+/quick-sync-plugin/vendor
+
+# Build output
+/quick-sync-scripts/dist
+
+# Tool-specific generated files
+**/repomix-output.xml
+
+# Log files
+*.log
+debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor specific
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+</file>
+
+<file path="airtable-fields.md">
+# Airtable Resources Base - Common Fields Analysis
+
+## Overview
+This document analyzes the common fields across all tables in the Resources Base to identify standard fields that should be included when creating new tables. These fields are not content-specific but rather provide consistent structure, tracking, and functionality across all resources.
+
+## Base Information
+- **Base Name**: Resources Base
+- **Base ID**: `apphmPNiTdmcknmfs`
+- **Total Tables**: 15
+
+## Tables Analyzed
+1. Series
+2. Sessions
+3. Articles
+4. News
+5. Series_2
+6. Sessions_2
+7. author-speaker
+8. Topics
+9. Leaders
+10. Worship
+11. Books
+12. Ministry
+13. subsplash_resource_lists
+14. subsplash_list_rows
+15. series_type
+
+## Standard Fields for New Tables
+
+### 1. Core Identification Fields
+These fields provide unique identification and basic metadata for each record:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `auto_number` | AutoNumber | Auto-incrementing unique identifier | 1, 2, 3... | N/A |
+| `sku` | Formula | Unique SKU code (usually based on auto_number) | "S0001", "R0001", "A0001" | `sku` |
+| `id` | Number | WordPress ID or external system ID | 12345 | N/A |
+| `title` / `name` | SingleLineText/MultilineText | Primary title/name of the resource | "Series Title" | `post_title` |
+
+### 2. URL and Permalink Fields
+These fields handle web routing and SEO:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `slug` | Formula/SingleLineText | URL-friendly version of title | "series-title" | `post_name` |
+| `permalink` | URL/Formula | Full URL path | "/resources/series/series-title" | `custom_permalink_uri` |
+
+### 3. Content Management Fields
+These fields handle content status and workflow:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `website_status` | SingleSelect | Publication status | "publish", "draft", "private" | `post_status` |
+| `excerpt` | MultilineText | Short description/summary | "Brief description..." | `post_excerpt` |
+| `content` / `description` | MultilineText | Main content body | "Full content..." | Custom meta |
+| `content_admin` | RichText | Admin-only content | "Internal notes..." | Custom meta |
+
+### 4. Timestamp Tracking Fields
+These fields provide comprehensive tracking of when content was created, modified, and published:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `last_modified` | LastModifiedTime | When any field was last changed | Auto-generated | N/A |
+| `media_last_modified` | LastModifiedTime | When media fields were last changed | Auto-generated | N/A |
+| `admin_last_modified` | LastModifiedTime | When admin fields were last changed | Auto-generated | N/A |
+| `publish_timestamp` | DateTime | When content was published | 2024-01-15 10:00:00 | `last_published` |
+| `media_publish_timestamp` | DateTime | When media was published | 2024-01-15 10:00:00 | N/A |
+| `admin_publish_timestamp` | DateTime | When admin content was published | 2024-01-15 10:00:00 | N/A |
+
+### 5. Status and Workflow Fields
+These fields provide status indicators and workflow management:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `update_status` | Formula | Human-readable update status | "⚡ Just Updated", "🚀 Updated Today" | N/A |
+| `publish_status` | Formula | Publication readiness status | "✅ Ready", "🎯 Needs Publish" | N/A |
+| `sync_status` | SingleSelect | External system sync status | "Success", "Processing", "Failed" | N/A |
+| `import_status` | SingleLineText | Import process status | "Completed", "Pending" | N/A |
+
+### 6. Media Management Fields
+These fields handle images and media assets. **Note: Use the `_wp_id` variant for WordPress sync:**
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `featured_image_wp_id` | Number | WordPress media ID (preferred) | 12345 | `_thumbnail_id` |
+| `featured_image_link` | URL | Featured image URL (fallback) | "https://example.com/image.jpg" | Custom meta |
+| `featured_image_attachment` | MultipleAttachments | Featured image file | Image file | N/A |
+| `featured_image_external` | SingleLineText | External image reference | "external_image_id" | N/A |
+| `listing_image_wp_id` | Number | WordPress media ID for listing | 12346 | `listing-image` |
+| `listing_image_link` | URL | Listing image URL | "https://example.com/listing.jpg" | Custom meta |
+| `banner_image_wp_id` | Number | WordPress media ID for banner | 12347 | `banner-image` |
+| `banner_image_link` | URL | Banner image URL | "https://example.com/banner.jpg" | Custom meta |
+| `no_words_image_wp_id` | Number | WordPress media ID (no text) | 12348 | `no-words-image` |
+| `no_words_image_link` | URL | No-text image URL | "https://example.com/nowords.jpg" | Custom meta |
+
+### 7. Category and Classification Fields
+These fields provide content organization and navigation:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `category_helper` | SingleLineText | Raw category string | "Resources>Series>Youth" | N/A |
+| `category` | SingleLineText | Processed category | "Youth" | Custom taxonomy |
+| `category_1`, `category_2`, etc. | Formula | Individual category levels | "Resources", "Series" | N/A |
+| `global_categories` | Formula | Full category hierarchy | "Resources > Series > Youth" | `global-categories` |
+| `series_category` | SingleSelect | Predefined category options | "Featured Messages" | `series-categories` |
+
+### 8. Relationship Fields
+These fields connect content to other resources:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `series` | MultipleRecordLinks | Related series | Links to Series table | `jet_relation_series_parent` |
+| `series_sku` | MultipleLookupValues | Series SKU from relationship | "S0001" | `jet_relation_series_parent` |
+| `sessions` | MultipleRecordLinks | Related sessions | Links to Sessions table | Custom meta |
+| `topics` | MultipleRecordLinks | Related topics | Links to Topics table | `topics` |
+| `author` / `speaker` | MultipleRecordLinks | Content creators | Links to author-speaker table | `author-speaker` |
+
+### 9. External Integration Fields
+These fields handle connections to external systems:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `wp_id` | Number | WordPress ID | 12345 | N/A |
+| `subsplash_*` | Various | Subsplash platform fields | Various Subsplash-specific fields | Custom meta |
+
+### 10. SEO and Metadata Fields
+These fields handle search engine optimization:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `seo_description` | Formula/MultilineText | SEO meta description | "SEO description..." | Custom meta |
+| `_aioseo_description` | MultilineText | All in One SEO description | "AIOSEO description..." | `_aioseo_description` |
+| `aioseo_description` | SingleLineText | Alternative SEO description | "Alternative SEO..." | Custom meta |
+
+### 11. Additional Content Fields
+These fields provide extra content and functionality:
+
+| Field Name | Field Type | Description | Example | WordPress Mapping |
+|------------|------------|-------------|---------|-------------------|
+| `pdf_title_1` | SingleSelect | PDF document title | "Worksheet", "Discussion Pages" | `custom-pdf-title-1` |
+| `pdf_link_1` | SingleLineText | PDF document link | "https://example.com/doc.pdf" | `link_ten` |
+| `youtube_link` | URL | YouTube video link | "https://youtube.com/watch?v=..." | `link_one` |
+| `spotify_podcast` | URL | Spotify podcast link | "https://open.spotify.com/..." | `spotify-podcast-link` |
+| `apple_podcast` | URL | Apple Podcasts link | "https://podcasts.apple.com/..." | `apple-podcast-link` |
+
+## Recommended Field Order for New Tables
+
+When creating a new table, consider this field order:
+
+1. **Core Identification** (auto_number, sku, id, title)
+2. **Content** (excerpt, content, content_admin)
+3. **URLs** (slug, permalink)
+4. **Categories** (category_helper, category, global_categories)
+5. **Media** (featured_image_wp_id, listing_image_wp_id, banner_image_wp_id, no_words_image_wp_id)
+6. **Relationships** (series, sessions, topics, author)
+7. **Timestamps** (last_modified, media_last_modified, admin_last_modified)
+8. **Publishing** (publish_timestamp, media_publish_timestamp, admin_publish_timestamp, api_publish_timestamp)
+9. **Status** (website_status, update_status, publish_status, sync_status)
+10. **External IDs** (wp_id, subsplash_*)
+11. **SEO** (seo_description, _aioseo_description)
+12. **Additional Content** (pdf_*, youtube_link, spotify_podcast, apple_podcast)
+
+## Field Type Recommendations
+
+- Use **Formula** fields for computed values (SKUs, status indicators, derived fields)
+- Use **LastModifiedTime** for automatic timestamp tracking
+- Use **MultipleAttachments** for file uploads
+- Use **MultipleRecordLinks** for relationships to other tables
+- Use **SingleSelect** for predefined options (status, categories)
+- Use **DateTime** for manual timestamp entry
+- Use **URL** for external links
+- Use **RichText** for admin content that needs formatting
+- Use **Number** for WordPress media IDs and external IDs
+
+## WordPress Integration Notes
+
+### **Media Field Pattern:**
+Always create both the `_wp_id` and `_link` variants for media fields:
+- `featured_image_wp_id` (Number) → WordPress `_thumbnail_id`
+- `featured_image_link` (URL) → Fallback/cache field
+
+### **Taxonomy Mapping:**
+- `global_categories` → WordPress `global-categories` taxonomy
+- `topics` → WordPress `topics` taxonomy
+- `author-speaker` → WordPress `author-speaker` taxonomy
+
+### **Custom Meta Fields:**
+- Use descriptive names that match WordPress meta keys
+- Consider using the `link_*` pattern for external resources
+- Use `custom-*` prefix for custom content fields
+
+## Notes
+
+- **SKU Pattern**: Most tables use a letter prefix + 4-digit number (S0001, R0001, A0001, etc.)
+- **Timestamp Consistency**: All tables use the same timestamp field structure for consistency
+- **Media Handling**: Standardized approach with wp_id fields for WordPress sync, link fields for fallbacks
+- **Category Structure**: Hierarchical category system with helper fields and derived category levels
+- **Status Workflow**: Consistent status tracking across all content types
+- **WordPress Sync**: Fields are designed to map directly to WordPress post types and taxonomies
+
+This analysis provides a foundation for maintaining consistency when creating new tables in the Resources Base while ensuring all necessary functionality is preserved and proper WordPress integration is maintained.
 </file>
 
 <file path="package.json">
@@ -1224,263 +1248,6 @@ class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
     // No other methods are needed here. The timezone and AIOSEO logic
     // are now handled automatically by the base class.
 }
-</file>
-
-<file path="quick-sync-plugin/README.md">
-Excellent. Here is a comprehensive, accurate, and well-structured `README.md` file for the `quick-sync-plugin` directory.
-
-It is written for a developer who needs to understand, maintain, and extend the plugin. It addresses the outdated information from your original README and accurately documents the powerful features you have built.
-
----
-
-# Four12 Quick Sync Framework
-
-**Version: 2.1.0**
-**Author: Four12 Global**
-
-This WordPress plugin provides a modular, configuration-driven framework for syncing data from Airtable. It creates secure REST API endpoints tailored to specific Custom Post Types (CPTs) and Taxonomies, handling the complex logic of data validation, creation, and updating.
-
-## Core Philosophy
-
-*   **Configuration over Code:** Define *what* to sync in a module's configuration arrays, not by writing new processing logic.
-*   **Don't Repeat Yourself (DRY):** All shared logic (post lookup, image handling, business rules) lives in central files and is inherited or used by all modules.
-*   **Modular & Isolated:** Each sync endpoint is its own class in the `/modules` directory. A bug in one module won't break another.
-*   **Two Patterns for Two Jobs:** The framework uses a powerful base class for CPTs and a flexible standalone class pattern for Taxonomies, providing the right tool for each job.
-
-## Installation & Dependencies
-
-1.  Place this plugin folder (`quick-sync-plugin`) in your `wp-content/plugins` directory.
-2.  This plugin uses third-party libraries managed by Composer. If the `vendor` directory is missing, you must run `composer install` from within this directory:
-    ```bash
-    # Navigate to the plugin directory
-    cd wp-content/plugins/quick-sync-plugin
-
-    # Install PHP dependencies
-    composer install
-    ```
-3.  Activate the plugin in the WordPress admin panel.
-
-## File Structure Breakdown
-
-The plugin's architecture is designed for clarity and separation of concerns.
-
-```
-quick-sync-plugin/
-│
-├─ f12-quick-sync.php        # The Router: Main plugin file that boots the framework and registers all module API routes.
-├─ core-helpers.php          # The Toolbox: Global helper functions (logging, image sideloading, SKU lookups).
-├─ module-base.php           # The Engine: An abstract base class containing all shared logic for CPT syncing.
-├─ relations.php             # The Specialist: A dedicated helper for handling JetEngine relationships.
-└─ modules/
-     ├─ series-sync.php      # Example CPT Module: A simple configuration class that extends module-base.php.
-     └─ author-sync.php      # Example Taxonomy Module: A standalone class with its own full request logic.
-```
-
-## How It Works: The Request Lifecycle
-
-1.  An API request (e.g., `POST /wp-json/four12/v1/sessions-sync`) arrives from an Airtable script.
-2.  The **Router** (`f12-quick-sync.php`) matches the endpoint slug (`sessions-sync`) to its corresponding module class (`F12_Sessions_Sync_Module`).
-3.  The request is handed off to the module's `handle_sync_request` method.
-4.  For CPTs, this method lives in the **Engine** (`module-base.php`). It orchestrates the entire process:
-    *   Finds the existing post via `wp_id` or `sku`.
-    *   Prepares and saves core post data (`post_title`, `post_date`, etc.).
-    *   Processes taxonomies, media, relationships, and all other metadata based on the module's configuration.
-5.  A JSON response is sent back to Airtable confirming the `post_id` and the action taken (`created` or `updated`).
-
----
-
-## Key Features
-
-### Universal Features (All Modules)
-
-*   **SKU-based De-duplication:** A `sku` field is used to reliably find existing items, preventing duplicates.
-*   **`wp_id` Fast-Path:** An optional `wp_id` in the payload bypasses the SKU lookup for faster, more efficient updates.
-*   **Secure Authentication:** Relies on WordPress Application Passwords for all endpoints.
-*   **Robust Post Type Validation:** Returns a `409 Conflict` error if a `wp_id` is provided that belongs to a post of the wrong type, preventing accidental data corruption.
-
-### CPT Module Features (via `module-base.php`)
-
-Any CPT module that extends `F12_Quick_Sync_Module_Base` gets this powerful logic automatically:
-
-*   **Declarative Markdown Parsing:** Simply map an Airtable field to `post_content` (or a meta field) in the `$markdown_map` property, and it will be automatically converted to safe HTML using Parsedown.
-*   **AIOSEO Integration:** Payloads containing the `_aioseo_description` key are automatically and safely saved using AIOSEO's models.
-*   **Dynamic Taxonomy Handling:** Automatically creates and assigns terms from arrays, comma-separated strings, or hierarchical strings (`Parent > Child`).
-*   **Image Sideloading Fallback:** If an image meta key (defined in `$image_meta_map`) contains a URL instead of an ID, the plugin downloads it to the Media Library and saves the new attachment ID.
-*   **JetEngine Relationship Sync:** A declarative `$jet_engine_relation_map` allows for effortless syncing of parent-child relationships using SKUs.
-
----
-
-## How to Add a New Sync Module
-
-### **Pattern 1: Adding a New CPT Sync (e.g., "Events")**
-
-This is the most common pattern. It relies purely on configuration and inherits all logic.
-
-1.  **Create Module File:** Duplicate `modules/series-sync.php` and rename it `modules/events-sync.php`.
-2.  **Configure the Class:** Edit the class name and fill in the configuration properties.
-
-    ```php
-    <?php
-    // modules/events-sync.php
-
-    class F12_Events_Sync_Module extends F12_Quick_Sync_Module_Base {
-
-        protected function init() {
-            // --- 1. Core Configuration ---
-            $this->cpt = 'event';
-            $this->endpoint_slug = 'event-sync';
-            $this->sku_meta_key = 'event_sku';
-
-            // --- 2. Field Mapping ---
-            $this->core_field_map = [
-                // Airtable Payload Key => WordPress Post Field
-                'event_title'   => 'post_title',
-                'event_date'    => 'post_date',
-                'event_status'  => 'post_status',
-            ];
-            $this->taxonomy_map = [
-                'event_type' => 'event-category',
-            ];
-            $this->image_meta_map = [
-                '_thumbnail_id',
-                'banner_image',
-            ];
-
-            // --- 3. (Optional) Markdown Mapping ---
-            $this->markdown_map = [
-                // Airtable Field      => Destination(s) in WordPress
-                'event_description_md' => ['post_content'],
-            ];
-        }
-    }
-    ```
-3.  **Done!** The framework automatically discovers the new module and registers the `/wp-json/four12/v1/event-sync` endpoint on the next page load.
-
-### **Pattern 2: Adding a New Taxonomy Sync (e.g., "Topics")**
-
-This pattern provides more granular control for the unique needs of taxonomies (like meta whitelisting).
-
-1.  **Create Module File:** Duplicate `modules/author-sync.php` and rename it `modules/topics-sync.php`.
-2.  **Configure the Class:** Edit the class name and update the private configuration properties. The core logic for finding, creating, and updating terms is already present.
-
-    ```php
-    <?php
-    // modules/topics-sync.php
-
-    class F12_Topics_Sync_Module { // Note: Does NOT extend the base class
-        // --- 1. Configuration ---
-        private $endpoint_slug = 'topic-sync';
-        private $taxonomy = 'topics';
-        private $sku_meta_key = 'topic_sku';
-
-        // --- 2. Whitelist your allowed meta keys ---
-        private $allowed_meta_keys = [
-            'topic_icon_class',
-            'is_featured_topic',
-        ];
-
-        // The rest of the file (handle_sync_request, find_existing_term, etc.)
-        // contains the robust logic for handling taxonomy terms.
-    }
-    ```
-3.  **Done!** The router will register the new `/wp-json/four12/v1/topic-sync` endpoint.
-
----
-
-## Payload Anatomy
-
-The plugin expects a specific JSON structure from Airtable scripts.
-
-```json
-{
-  "airtableRecordId": "recXXXXXXXXXXXXXX",
-  "sku": "S0123",             // Unique identifier (required)
-  "wp_id": 1234,              // WordPress Post/Term ID (optional, for fast updates)
-  "fields": {
-    /* --- Core Fields (for CPTs) --- */
-    "post_title": "My Series Title",
-    "post_status": "publish",
-    "post_date": "2024-01-01T12:00:00Z",
-
-    /* --- Universal Framework Keys with Special Handling --- */
-    "_aioseo_description": "My SEO description.",
-    "jet_relation_series_parent": ["PARENT-SKU-001"],
-
-    /* --- Image Fields --- */
-    "_thumbnail_id": 567,                 // WP Media ID (preferred)
-    "banner-image": "https://.../img.jpg",    // URL (fallback, will be sideloaded)
-
-    /* --- Taxonomy Fields --- */
-    "topics": ["Topic A", "Topic B"],
-    "series-categories": "Parent > Child"
-  }
-}
-```
-
-## Authentication
-
-Authentication is handled via **WordPress Application Passwords**.
-
-1.  In the WordPress admin, go to **Users > Your Profile**.
-2.  Scroll down to "Application Passwords".
-3.  Create a new password (e.g., "Airtable Sync").
-4.  Copy the generated password (e.g., `abcd efgh ijkl mnop qrst uvwx`).
-5.  In your Airtable Automation, create a Secret (e.g., `API-SYNC`) and store your credentials in the format `username:password` (e.g., `my_wp_admin_user:abcd efgh ijkl mnop qrst uvwx`).
-
-## Logging & Debugging
-
-*   **Enable WP_DEBUG:** To see detailed logs, set `WP_DEBUG` and `WP_DEBUG_LOG` to `true` in your `wp-config.php`.
-*   **Log Location:** All server-side sync activity is logged to `wp-content/debug.log` with the prefix `[Four12 Quick Sync]`.
-*   **What is Logged:** Successes, failures, warnings, ignored meta keys, reasons for skipping a field, and outcomes of third-party integrations.
-
-##Relationships
-
-# 1. The Core Principle: Orchestrator vs. Specialist
-
-The success of this system hinges on a clear separation of concerns between two key files:
-
-- **The Orchestrator (`module-base.php`):** This file is the "manager." It knows *what* needs to be done but not the low-level details of *how*. Its responsibilities are:
-    - To parse the incoming API payload.
-    - To identify that a relationship needs to be updated (by seeing the `jet_relation_series_parent` key).
-    - To extract the necessary information (the child's ID and the parent's SKU).
-    - To delegate the actual relationship work to a specialist.
-- **The Specialist (`relations.php`):** This file is the "expert." It knows the specific, multi-step process of interacting with the JetEngine API. Its responsibilities are:
-    - To accept high-level instructions (e.g., "link this child to this parent SKU").
-    - To perform all the necessary lookups (finding the parent post by SKU).
-    - To execute the precise, sequential commands required by the JetEngine API (`get_active_relations`, `set_update_context`, `update`).
-    - To handle all API-specific logic, keeping the orchestrator clean.
-
-This architecture ensures that if the JetEngine API ever changes, we only need to update the "specialist" (`relations.php`), leaving the "orchestrator" (`module-base.php`) untouched.
-
----
-
-## 2. End-to-End Data Flow
-
-Here is the step-by-step journey of a relationship sync from Airtable to the WordPress database:
-
-1. **Airtable (`QuickSync Script`):** A JSON payload is constructed. The child post's SKU is the top-level `sku`, and the parent post's SKU is placed in an array within the `fields` object (e.g., `"jet_relation_series_parent": ["S0099"]`).
-2. **WordPress (`f12-quick-sync.php`):** The main plugin file receives the POST request. It acts as a router, directing the request to the correct module handler based on the endpoint slug (e.g., `/sessions-sync` routes to `F12_Sessions_Sync_Module`).
-3. **The Module (`modules/sessions-sync.php`):** This file provides the **configuration**. It tells the framework that the payload key `jet_relation_series_parent` corresponds to JetEngine `relation_id: 63` and that the parent lives in the `series` CPT.
-4. **The Orchestrator (`module-base.php`):** The `handle_sync_request` method begins processing. After creating/updating the core post, it calls the `_process_jet_engine_relations` method. This method:
-    - Finds the `jet_relation_series_parent` key in the payload.
-    - Extracts the parent SKU (`S0099`).
-    - Calls the high-level specialist function `f12_set_relation_parent_by_sku()`, passing it the child's ID, the parent's SKU, and the relation configuration.
-5. **The Specialist (`relations.php`):** The `f12_set_relation_parent_by_sku()` function executes the core logic:
-    - It uses the helper `f12_get_post_by_sku()` to find the parent post's ID (e.g., `326588`) from its SKU (`S0099`).
-    - It gets the JetEngine relation object using `jet_engine()->relations->get_active_relations(63)`.
-    - **CRITICAL STEP:** It calls `$rel->set_update_context('child')`. This tells JetEngine, "The action I'm about to perform is from the child's perspective. You should **replace** any existing parents for this child with the one I'm about to provide."
-    - It calls `$rel->update(326588, 334333)`, passing the parent ID and child ID as single integers.
-6. **The Database (`wp_postmeta`):** Because the "Register separate DB table" setting is OFF for this relation, JetEngine saves the link by creating/updating a row in the `wp_postmeta` table where `post_id` is the child's ID, `meta_key` is `jet_engine_relation_series_resources`, and `meta_value` is the parent's ID.
-
-## 3. Component Breakdown
-
-All of these pieces must work together:
-
-- **`modules/sessions-sync.php` (The Configuration):** Defines the `jet_engine_relation_map`. Without this, the framework wouldn't know what to do with the `jet_relation_series_parent` payload key.
-- **`module-base.php` (The Orchestrator):** The `_process_jet_engine_relations` method reads the configuration and delegates the task.
-- **`relations.php` (The Specialist):** Contains the `f12_set_relation_parent_by_sku` function that knows how to talk to the JetEngine API.
-- **`f12-quick-sync.php` (The Loader):** The `plugins_loaded` action hook at the bottom correctly checks for `function_exists('f12_set_relation_parent_by_sku')` before including `relations.php`. This ensures the specialist is available when the orchestrator needs it.
-- **`core-helpers.php` (The Foundation):** Provides the essential `f12_get_post_by_sku()` function, which is critical for converting the parent's SKU into a usable WordPress Post ID.
 </file>
 
 <file path="quick-sync-scripts/src/lib/sync-helpers.ts">
@@ -2024,6 +1791,593 @@ const worshipSyncConfig = {
 quickSync(worshipSyncConfig, scriptInput);
 </file>
 
+<file path="quick-sync-scripts/README.md">
+Of course. Here is a comprehensive and well-thought-out `README.md` for the `quick-sync-scripts` directory.
+
+This document replaces the outdated instructions, accurately reflects the modern TypeScript architecture, and provides a clear, step-by-step guide for developers to maintain and extend the Airtable scripts.
+
+---
+
+# Airtable Quick Sync Scripts
+
+This is a TypeScript project that contains all the "client-side" scripts for the Airtable-to-WordPress synchronization system. These scripts run inside Airtable Automations, gather record data, and send it to the `quick-sync-plugin` on the WordPress server.
+
+## Core Architecture
+
+This is not a collection of standalone scripts. It is a modern TypeScript project that must be **compiled** before use. This approach provides significant advantages:
+
+*   **Type Safety:** TypeScript prevents common errors before the code ever runs in Airtable.
+*   **Shared Logic:** Common functions for authentication, data handling, and media uploads are centralized in `src/lib/` for consistency and easy updates.
+*   **Modularity:** Each CPT or Taxonomy has its own small, clean entry-point file, which is easy to read and manage.
+*   **Build Process:** A standardized build process (`npm run build`) minifies the code, making it efficient to paste into Airtable.
+
+```mermaid
+flowchart LR
+    subgraph "Development (Your Computer)"
+        A[src/lib/sync-helpers.ts] --> B[src/series-sync.ts];
+        C[src/lib/media-helpers.ts] --> D[src/series-media.ts];
+        B & D -- "npm run build" --> E((esbuild Compiler));
+    end
+
+    subgraph "Deployment (Airtable)"
+        F[dist/series-sync.js];
+        G[dist/series-media.js];
+        E --> F & G;
+        F & G -- "Copy & Paste" --> H{Airtable Automation Scripts};
+    end
+```
+
+---
+
+## Developer Setup
+
+**Prerequisites:** You must have [Node.js](https://nodejs.org/) and `npm` installed.
+
+1.  **Install Dependencies:** From within this directory (`quick-sync-scripts/`), run:
+    ```bash
+    npm install
+    ```
+
+2.  **Build the Scripts:** To compile all TypeScript files from `src/` into JavaScript files in `dist/`, run:
+    ```bash
+    npm run build
+    ```
+
+3.  **Watch for Changes (Development):** To automatically re-compile whenever you save a file, run:
+    ```bash
+    npm run watch
+    ```
+
+---
+
+## The Two-Step Sync Process
+
+For each record, we use a two-step automation in Airtable to ensure media is handled correctly.
+
+1.  **Media Sync Script:** Runs first. It uploads images/files to WordPress and saves the returned WordPress Media IDs back to the Airtable record.
+2.  **Data Sync Script:** Runs second. It sends all the record's text data, taxonomy data, and the stable WordPress Media IDs from Step 1 to the custom endpoint in our plugin.
+
+## How to Add a New Sync Workflow (e.g., for an "Events" CPT)
+
+Follow this two-step process to create the necessary scripts for a new CPT.
+
+### Step 1: Create the Media Script
+
+This script handles the image attachments.
+
+1.  Create a new file in the `src/` directory: `events-media.ts`.
+2.  Add the following code, customizing the `eventsMediaConfig` object for your needs.
+
+    ```typescript
+    // src/events-media.ts
+
+    import { mediaSync, MediaSyncConfig } from './lib/media-helpers';
+
+    // The single, valid call to input.config() for the entire script run.
+    const scriptInput = input.config();
+
+    const eventsMediaConfig: MediaSyncConfig = {
+      // 1. The name of your Airtable table
+      airtableTable: 'Events',
+
+      // 2. The standard WordPress media endpoints
+      envMediaEndpoints: {
+        prod:    'https://four12global.com/wp-json/wp/v2/media',
+        staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/wp/v2/media',
+      },
+
+      // 3. Airtable fields used to track when a sync is needed
+      lastModifiedField:     'media_last_modified',     // A "Last Modified Time" field
+      publishTimestampField: 'media_publish_timestamp', // A "Date" field (set to "Last Modified")
+
+      // 4. A list of all image/attachment fields for this CPT
+      imageFields: [
+        {
+          attachmentField:    'event_featured_image',    // The attachment field
+          wpIdField:          'event_featured_image_wp_id', // A number field for the WP ID
+          wpUrlField:         'event_featured_image_link',  // A URL field for the WP URL
+          airtableCacheField: 'event_featured_image_ext',   // A text field for the Airtable cache
+          isMultiple:         false,
+        },
+        // Add another object here for the "banner_image", etc.
+      ],
+    };
+
+    // This one line runs the entire sync process
+    mediaSync(eventsMediaConfig, scriptInput);
+    ```
+
+### Step 2: Create the Data Script
+
+This script handles all other fields and relationships.
+
+1.  Create a new file in the `src/` directory: `events-sync.ts`.
+2.  Add the following code, customizing the `FIELD_MAP` and config object.
+
+    ```typescript
+    // src/events-sync.ts
+
+    import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
+
+    // The single, valid call to input.config()
+    const scriptInput = input.config();
+
+    // The FIELD_MAP is the heart of the configuration.
+    // It maps 'Airtable Field Name' to the 'WordPress Payload Key'.
+    const FIELD_MAP: FieldMap = {
+      /* --- Core WP Fields --- */
+      'event_title':   'post_title',
+      'event_slug':    'post_name',
+      'event_date':    'post_date',
+      'event_status':  'post_status',
+      'event_sku':     'sku',
+
+      /* --- Taxonomy Fields --- */
+      'event_category': 'event-categories',
+
+      /* --- Media Fields (using the IDs from the media script!) --- */
+      'event_featured_image_wp_id': {
+        airtableIdField: 'event_featured_image_wp_id', // The field populated by events-media.js
+        wpKey: '_thumbnail_id', // The special WordPress key for featured image
+      },
+    };
+
+    const eventsSyncConfig: QuickSyncConfig = {
+      airtableTable: 'Events',
+      skuField:      'event_sku',   // The Airtable field holding the unique ID
+      titleField:    'event_title', // The Airtable field for the post's title
+      fieldMap:      FIELD_MAP,
+      envEndpoints: {
+        prod:    'https://four12global.com/wp-json/four12/v1/event-sync',
+        staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/event-sync',
+      },
+    };
+
+    // Run the sync process
+    quickSync(eventsSyncConfig, scriptInput);
+    ```
+
+---
+
+## Deployment to Airtable
+
+The code you write in `src/` is **not** what you paste into Airtable. You must use the compiled output.
+
+1.  **Build the Code:** Run `npm run build` in your terminal. This will create/update the JavaScript files in the `dist/` directory.
+
+2.  **Copy the Script:**
+    *   Open the compiled file (e.g., `dist/events-media.js`).
+    *   Select all (`Cmd+A` or `Ctrl+A`) and copy the entire contents.
+
+3.  **Paste into Airtable:**
+    *   In your Airtable Automation, add a "Run a script" action.
+    *   Delete any placeholder code and paste your copied script.
+
+4.  **Configure Inputs:** The scripts require two input variables to be configured in the Airtable UI:
+    *   `recordId`: Set its value to the `Airtable record ID` from the automation's trigger step.
+    *   `env`: A text string. Type `prod` for your production base or `staging` for your staging base. This allows the script to target the correct WordPress environment.
+
+Repeat this process for the data sync script (`dist/events-sync.js`), ensuring it runs as the next step in the same automation.
+</file>
+
+<file path="quick-sync-plugin/modules/worship-sync.php">
+<?php
+/**
+ * Quick Sync Module: Worship CPT
+ *
+ * Provides the specific configuration for syncing the 'worship' Custom Post Type.
+ * It inherits all universal processing logic (post lookup, image handling, etc.)
+ * from the F12_Quick_Sync_Module_Base class.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+class F12_Worship_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+    /**
+     * Set up all configuration for the 'worship' CPT.
+     * This function maps the incoming payload from Airtable to the correct
+     * WordPress fields, taxonomies, and meta keys.
+     */
+    protected function init() {
+        // --- 1. Core Configuration ---
+        // Defines the CPT slug, the API endpoint, and the SKU meta key.
+        $this->cpt = 'songs';
+        $this->endpoint_slug = 'worship-sync';
+        $this->sku_meta_key = 'sku'; // Convention: CPT_sku
+
+        // --- 2. Core Field Mapping ---
+        // Maps payload keys to core WordPress post fields (wp_posts table).
+        $this->core_field_map = [
+            'post_title'   => 'post_title',
+            'post_name'    => 'post_name',
+            'post_excerpt' => 'post_excerpt',
+            'post_date'    => 'post_date',
+            'post_status'  => 'post_status',
+        ];
+
+        // --- 3. Taxonomy Mapping ---
+        // Maps a payload key to a WordPress taxonomy slug. The base class
+        // will automatically create/assign the terms.
+        $this->taxonomy_map = [
+            'worship_artist' => 'worship-artist',
+            'topics' => 'topics',
+            'global-categories' => 'global-categories',
+        ];
+
+        // --- 4. Image/Media Meta Mapping ---
+        // Lists payload keys that correspond to media. The base class uses this
+        // for its URL-sideloading fallback. The primary path (sending a WP ID)
+        // is handled by the generic meta processor.
+        $this->image_meta_map = [
+            '_thumbnail_id',     // The featured image.
+            'chord_sheet_pdf',   // The chord sheet PDF.
+        ];
+
+        // This CPT does not use markdown or post_content processing.
+        
+        // Note: The simple meta fields from your Airtable script (`apple_music_link`, 
+        // `spotify_link`, `youtube_music_link`, and `chord_sheet_pdf`) do not need
+        // to be explicitly defined here. The base class's `_process_meta_fields` 
+        // method will automatically handle any remaining keys in the payload and
+        // save them as post meta.
+    }
+
+    // No other methods are needed. The F12_Quick_Sync_Module_Base handles everything else.
+}
+</file>
+
+<file path="quick-sync-plugin/README.md">
+Excellent. Here is a comprehensive, accurate, and well-structured `README.md` file for the `quick-sync-plugin` directory.
+
+It is written for a developer who needs to understand, maintain, and extend the plugin. It addresses the outdated information from your original README and accurately documents the powerful features you have built.
+
+---
+
+# Four12 Quick Sync Framework
+
+**Version: 2.1.0**
+**Author: Four12 Global**
+
+This WordPress plugin provides a modular, configuration-driven framework for syncing data from Airtable. It creates secure REST API endpoints tailored to specific Custom Post Types (CPTs) and Taxonomies, handling the complex logic of data validation, creation, and updating.
+
+## Core Philosophy
+
+*   **Configuration over Code:** Define *what* to sync in a module's configuration arrays, not by writing new processing logic.
+*   **Don't Repeat Yourself (DRY):** All shared logic (post lookup, image handling, business rules) lives in central files and is inherited or used by all modules.
+*   **Modular & Isolated:** Each sync endpoint is its own class in the `/modules` directory. A bug in one module won't break another.
+*   **Two Patterns for Two Jobs:** The framework uses a powerful base class for CPTs and a flexible standalone class pattern for Taxonomies, providing the right tool for each job.
+
+## Installation & Dependencies
+
+1.  Place this plugin folder (`quick-sync-plugin`) in your `wp-content/plugins` directory.
+2.  This plugin uses third-party libraries managed by Composer. If the `vendor` directory is missing, you must run `composer install` from within this directory:
+    ```bash
+    # Navigate to the plugin directory
+    cd wp-content/plugins/quick-sync-plugin
+
+    # Install PHP dependencies
+    composer install
+    ```
+3.  Activate the plugin in the WordPress admin panel.
+
+## File Structure Breakdown
+
+The plugin's architecture is designed for clarity and separation of concerns.
+
+```
+quick-sync-plugin/
+│
+├─ f12-quick-sync.php        # The Router: Main plugin file that boots the framework and registers all module API routes.
+├─ core-helpers.php          # The Toolbox: Global helper functions (logging, image sideloading, SKU lookups).
+├─ module-base.php           # The Engine: An abstract base class containing all shared logic for CPT syncing.
+├─ relations.php             # The Specialist: A dedicated helper for handling JetEngine relationships.
+└─ modules/
+     ├─ series-sync.php      # Example CPT Module: A simple configuration class that extends module-base.php.
+     └─ author-sync.php      # Example Taxonomy Module: A standalone class with its own full request logic.
+```
+
+## How It Works: The Request Lifecycle
+
+1.  An API request (e.g., `POST /wp-json/four12/v1/sessions-sync`) arrives from an Airtable script.
+2.  The **Router** (`f12-quick-sync.php`) matches the endpoint slug (`sessions-sync`) to its corresponding module class (`F12_Sessions_Sync_Module`).
+3.  The request is handed off to the module's `handle_sync_request` method.
+4.  For CPTs, this method lives in the **Engine** (`module-base.php`). It orchestrates the entire process:
+    *   Finds the existing post via `wp_id` or `sku`.
+    *   Prepares and saves core post data (`post_title`, `post_date`, etc.).
+    *   Processes taxonomies, media, relationships, and all other metadata based on the module's configuration.
+5.  A JSON response is sent back to Airtable confirming the `post_id` and the action taken (`created` or `updated`).
+
+---
+
+## Key Features
+
+### Universal Features (All Modules)
+
+*   **SKU-based De-duplication:** A `sku` field is used to reliably find existing items, preventing duplicates.
+*   **`wp_id` Fast-Path:** An optional `wp_id` in the payload bypasses the SKU lookup for faster, more efficient updates.
+*   **Secure Authentication:** Relies on WordPress Application Passwords for all endpoints.
+*   **Robust Post Type Validation:** Returns a `409 Conflict` error if a `wp_id` is provided that belongs to a post of the wrong type, preventing accidental data corruption.
+
+### CPT Module Features (via `module-base.php`)
+
+Any CPT module that extends `F12_Quick_Sync_Module_Base` gets this powerful logic automatically:
+
+*   **Declarative Markdown Parsing:** Simply map an Airtable field to `post_content` (or a meta field) in the `$markdown_map` property, and it will be automatically converted to safe HTML using Parsedown.
+*   **AIOSEO Integration:** Payloads containing the `_aioseo_description` key are automatically and safely saved using AIOSEO's models.
+*   **Dynamic Taxonomy Handling:** Automatically creates and assigns terms from arrays, comma-separated strings, or hierarchical strings (`Parent > Child`).
+*   **Image Sideloading Fallback:** If an image meta key (defined in `$image_meta_map`) contains a URL instead of an ID, the plugin downloads it to the Media Library and saves the new attachment ID.
+*   **JetEngine Relationship Sync:** A declarative `$jet_engine_relation_map` allows for effortless syncing of parent-child relationships using SKUs.
+
+---
+
+## How to Add a New Sync Module
+
+### **Pattern 1: Adding a New CPT Sync (e.g., "Events")**
+
+This is the most common pattern. It relies purely on configuration and inherits all logic.
+
+1.  **Create Module File:** Duplicate `modules/series-sync.php` and rename it `modules/events-sync.php`.
+2.  **Configure the Class:** Edit the class name and fill in the configuration properties.
+
+    ```php
+    <?php
+    // modules/events-sync.php
+
+    class F12_Events_Sync_Module extends F12_Quick_Sync_Module_Base {
+
+        protected function init() {
+            // --- 1. Core Configuration ---
+            $this->cpt = 'event';
+            $this->endpoint_slug = 'event-sync';
+            $this->sku_meta_key = 'event_sku';
+
+            // --- 2. Field Mapping ---
+            $this->core_field_map = [
+                // Airtable Payload Key => WordPress Post Field
+                'event_title'   => 'post_title',
+                'event_date'    => 'post_date',
+                'event_status'  => 'post_status',
+            ];
+            $this->taxonomy_map = [
+                'event_type' => 'event-category',
+            ];
+            $this->image_meta_map = [
+                '_thumbnail_id',
+                'banner_image',
+            ];
+
+            // --- 3. (Optional) Markdown Mapping ---
+            $this->markdown_map = [
+                // Airtable Field      => Destination(s) in WordPress
+                'event_description_md' => ['post_content'],
+            ];
+        }
+    }
+    ```
+3.  **Done!** The framework automatically discovers the new module and registers the `/wp-json/four12/v1/event-sync` endpoint on the next page load.
+
+### **Pattern 2: Adding a New Taxonomy Sync (e.g., "Topics")**
+
+This pattern provides more granular control for the unique needs of taxonomies (like meta whitelisting).
+
+1.  **Create Module File:** Duplicate `modules/author-sync.php` and rename it `modules/topics-sync.php`.
+2.  **Configure the Class:** Edit the class name and update the private configuration properties. The core logic for finding, creating, and updating terms is already present.
+
+    ```php
+    <?php
+    // modules/topics-sync.php
+
+    class F12_Topics_Sync_Module { // Note: Does NOT extend the base class
+        // --- 1. Configuration ---
+        private $endpoint_slug = 'topic-sync';
+        private $taxonomy = 'topics';
+        private $sku_meta_key = 'topic_sku';
+
+        // --- 2. Whitelist your allowed meta keys ---
+        private $allowed_meta_keys = [
+            'topic_icon_class',
+            'is_featured_topic',
+        ];
+
+        // The rest of the file (handle_sync_request, find_existing_term, etc.)
+        // contains the robust logic for handling taxonomy terms.
+    }
+    ```
+3.  **Done!** The router will register the new `/wp-json/four12/v1/topic-sync` endpoint.
+
+---
+
+## Payload Anatomy
+
+The plugin expects a specific JSON structure from Airtable scripts.
+
+```json
+{
+  "airtableRecordId": "recXXXXXXXXXXXXXX",
+  "sku": "S0123",             // Unique identifier (required)
+  "wp_id": 1234,              // WordPress Post/Term ID (optional, for fast updates)
+  "fields": {
+    /* --- Core Fields (for CPTs) --- */
+    "post_title": "My Series Title",
+    "post_status": "publish",
+    "post_date": "2024-01-01T12:00:00Z",
+
+    /* --- Universal Framework Keys with Special Handling --- */
+    "_aioseo_description": "My SEO description.",
+    "jet_relation_series_parent": ["PARENT-SKU-001"],
+
+    /* --- Image Fields --- */
+    "_thumbnail_id": 567,                 // WP Media ID (preferred)
+    "banner-image": "https://.../img.jpg",    // URL (fallback, will be sideloaded)
+
+    /* --- Taxonomy Fields --- */
+    "topics": ["Topic A", "Topic B"],
+    "series-categories": "Parent > Child"
+  }
+}
+```
+
+## Authentication
+
+Authentication is handled via **WordPress Application Passwords**.
+
+1.  In the WordPress admin, go to **Users > Your Profile**.
+2.  Scroll down to "Application Passwords".
+3.  Create a new password (e.g., "Airtable Sync").
+4.  Copy the generated password (e.g., `abcd efgh ijkl mnop qrst uvwx`).
+5.  In your Airtable Automation, create a Secret (e.g., `API-SYNC`) and store your credentials in the format `username:password` (e.g., `my_wp_admin_user:abcd efgh ijkl mnop qrst uvwx`).
+
+## Logging & Debugging
+
+*   **Enable WP_DEBUG:** To see detailed logs, set `WP_DEBUG` and `WP_DEBUG_LOG` to `true` in your `wp-config.php`.
+*   **Log Location:** All server-side sync activity is logged to `wp-content/debug.log` with the prefix `[Four12 Quick Sync]`.
+*   **What is Logged:** Successes, failures, warnings, ignored meta keys, reasons for skipping a field, and outcomes of third-party integrations.
+
+##Relationships
+
+# 1. The Core Principle: Orchestrator vs. Specialist
+
+The success of this system hinges on a clear separation of concerns between two key files:
+
+- **The Orchestrator (`module-base.php`):** This file is the "manager." It knows *what* needs to be done but not the low-level details of *how*. Its responsibilities are:
+    - To parse the incoming API payload.
+    - To identify that a relationship needs to be updated (by seeing the `jet_relation_series_parent` key).
+    - To extract the necessary information (the child's ID and the parent's SKU).
+    - To delegate the actual relationship work to a specialist.
+- **The Specialist (`relations.php`):** This file is the "expert." It knows the specific, multi-step process of interacting with the JetEngine API. Its responsibilities are:
+    - To accept high-level instructions (e.g., "link this child to this parent SKU").
+    - To perform all the necessary lookups (finding the parent post by SKU).
+    - To execute the precise, sequential commands required by the JetEngine API (`get_active_relations`, `set_update_context`, `update`).
+    - To handle all API-specific logic, keeping the orchestrator clean.
+
+This architecture ensures that if the JetEngine API ever changes, we only need to update the "specialist" (`relations.php`), leaving the "orchestrator" (`module-base.php`) untouched.
+
+---
+
+## 2. End-to-End Data Flow
+
+Here is the step-by-step journey of a relationship sync from Airtable to the WordPress database:
+
+1. **Airtable (`QuickSync Script`):** A JSON payload is constructed. The child post's SKU is the top-level `sku`, and the parent post's SKU is placed in an array within the `fields` object (e.g., `"jet_relation_series_parent": ["S0099"]`).
+2. **WordPress (`f12-quick-sync.php`):** The main plugin file receives the POST request. It acts as a router, directing the request to the correct module handler based on the endpoint slug (e.g., `/sessions-sync` routes to `F12_Sessions_Sync_Module`).
+3. **The Module (`modules/sessions-sync.php`):** This file provides the **configuration**. It tells the framework that the payload key `jet_relation_series_parent` corresponds to JetEngine `relation_id: 63` and that the parent lives in the `series` CPT.
+4. **The Orchestrator (`module-base.php`):** The `handle_sync_request` method begins processing. After creating/updating the core post, it calls the `_process_jet_engine_relations` method. This method:
+    - Finds the `jet_relation_series_parent` key in the payload.
+    - Extracts the parent SKU (`S0099`).
+    - Calls the high-level specialist function `f12_set_relation_parent_by_sku()`, passing it the child's ID, the parent's SKU, and the relation configuration.
+5. **The Specialist (`relations.php`):** The `f12_set_relation_parent_by_sku()` function executes the core logic:
+    - It uses the helper `f12_get_post_by_sku()` to find the parent post's ID (e.g., `326588`) from its SKU (`S0099`).
+    - It gets the JetEngine relation object using `jet_engine()->relations->get_active_relations(63)`.
+    - **CRITICAL STEP:** It calls `$rel->set_update_context('child')`. This tells JetEngine, "The action I'm about to perform is from the child's perspective. You should **replace** any existing parents for this child with the one I'm about to provide."
+    - It calls `$rel->update(326588, 334333)`, passing the parent ID and child ID as single integers.
+6. **The Database (`wp_postmeta`):** Because the "Register separate DB table" setting is OFF for this relation, JetEngine saves the link by creating/updating a row in the `wp_postmeta` table where `post_id` is the child's ID, `meta_key` is `jet_engine_relation_series_resources`, and `meta_value` is the parent's ID.
+
+## 3. Component Breakdown
+
+All of these pieces must work together:
+
+- **`modules/sessions-sync.php` (The Configuration):** Defines the `jet_engine_relation_map`. Without this, the framework wouldn't know what to do with the `jet_relation_series_parent` payload key.
+- **`module-base.php` (The Orchestrator):** The `_process_jet_engine_relations` method reads the configuration and delegates the task.
+- **`relations.php` (The Specialist):** Contains the `f12_set_relation_parent_by_sku` function that knows how to talk to the JetEngine API.
+- **`f12-quick-sync.php` (The Loader):** The `plugins_loaded` action hook at the bottom correctly checks for `function_exists('f12_set_relation_parent_by_sku')` before including `relations.php`. This ensures the specialist is available when the orchestrator needs it.
+- **`core-helpers.php` (The Foundation):** Provides the essential `f12_get_post_by_sku()` function, which is critical for converting the parent's SKU into a usable WordPress Post ID.
+</file>
+
+<file path="quick-sync-plugin/relations.php">
+<?php
+// relations.php  (v3.1 - Production Final)
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Sets the parent for a child post using the parent's SKU.
+ * This is a high-level function that encapsulates the entire process of
+ * finding the parent, setting the relation context, and updating the link.
+ * It will REPLACE any existing parent for the child in this relation.
+ *
+ * @param int   $child_id         The ID of the child post.
+ * @param string $parent_sku      The SKU of the parent post to link.
+ * @param array  $relation_config The configuration array from the module's map.
+ * @return true|WP_Error
+ */
+function f12_set_relation_parent_by_sku( int $child_id, string $parent_sku, array $relation_config ) {
+    
+    // 1. Find the parent post by its SKU.
+    $parent_post = f12_get_post_by_sku( $parent_sku, $relation_config['parent_cpt'], $relation_config['parent_sku_meta'] );
+
+    if ( ! $parent_post ) {
+        f12_sync_log("[JetEngine] FAILED: Parent post with SKU '{$parent_sku}' not found.");
+        return new WP_Error('parent_not_found', "Parent post with SKU '{$parent_sku}' not found.");
+    }
+    $parent_id = $parent_post->ID;
+
+    // 2. Get the relation object from JetEngine.
+    $rel_id = (int) $relation_config['relation_id'];
+    $rel = jet_engine()->relations->get_active_relations( $rel_id );
+
+    if ( ! $rel ) {
+        f12_sync_log("[JetEngine] FAILED: Relation object for ID '{$rel_id}' not found or is inactive.");
+        return new WP_Error('relation_not_found', "JetEngine Relation '{$rel_id}' not found.");
+    }
+
+    // 3. Set the context and update the relationship. This is the critical sequence.
+    $rel->set_update_context( 'child' );
+    $rel->update( $parent_id, $child_id );
+
+    f12_sync_log("[JetEngine] SUCCESS: Linked child ID {$child_id} to parent ID {$parent_id} for relation {$rel_id}.");
+
+    return true;
+}
+</file>
+
+<file path="quick-sync-scripts/package.json">
+{
+  "name": "f12-quick-sync",
+  "version": "1.0.0",
+  "description": "Airtable → WordPress Quick-Sync scripts",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
+    "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.25.8",
+    "typescript": "^5.8.3"
+  }
+}
+</file>
+
 <file path="README.md">
 Four12 Quick Sync — WordPress Plugin (quick-sync-plugin)
 
@@ -2324,147 +2678,6 @@ curl -u "sync-bot:APP-PASS" -H "Content-Type: application/json" \
 ⸻
 
 If you only remember one rule: **never ship to prod before you’ve run the payload against staging and eyeballed the result.** Your future self will thank you.
-</file>
-
-<file path="quick-sync-plugin/modules/worship-sync.php">
-<?php
-/**
- * Quick Sync Module: Worship CPT
- *
- * Provides the specific configuration for syncing the 'worship' Custom Post Type.
- * It inherits all universal processing logic (post lookup, image handling, etc.)
- * from the F12_Quick_Sync_Module_Base class.
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
-}
-
-class F12_Worship_Sync_Module extends F12_Quick_Sync_Module_Base {
-
-    /**
-     * Set up all configuration for the 'worship' CPT.
-     * This function maps the incoming payload from Airtable to the correct
-     * WordPress fields, taxonomies, and meta keys.
-     */
-    protected function init() {
-        // --- 1. Core Configuration ---
-        // Defines the CPT slug, the API endpoint, and the SKU meta key.
-        $this->cpt = 'songs';
-        $this->endpoint_slug = 'worship-sync';
-        $this->sku_meta_key = 'sku'; // Convention: CPT_sku
-
-        // --- 2. Core Field Mapping ---
-        // Maps payload keys to core WordPress post fields (wp_posts table).
-        $this->core_field_map = [
-            'post_title'   => 'post_title',
-            'post_name'    => 'post_name',
-            'post_excerpt' => 'post_excerpt',
-            'post_date'    => 'post_date',
-            'post_status'  => 'post_status',
-        ];
-
-        // --- 3. Taxonomy Mapping ---
-        // Maps a payload key to a WordPress taxonomy slug. The base class
-        // will automatically create/assign the terms.
-        $this->taxonomy_map = [
-            'worship_artist' => 'worship-artist',
-            'topics' => 'topics',
-            'global-categories' => 'global-categories',
-        ];
-
-        // --- 4. Image/Media Meta Mapping ---
-        // Lists payload keys that correspond to media. The base class uses this
-        // for its URL-sideloading fallback. The primary path (sending a WP ID)
-        // is handled by the generic meta processor.
-        $this->image_meta_map = [
-            '_thumbnail_id',     // The featured image.
-            'chord_sheet_pdf',   // The chord sheet PDF.
-        ];
-
-        // This CPT does not use markdown or post_content processing.
-        
-        // Note: The simple meta fields from your Airtable script (`apple_music_link`, 
-        // `spotify_link`, `youtube_music_link`, and `chord_sheet_pdf`) do not need
-        // to be explicitly defined here. The base class's `_process_meta_fields` 
-        // method will automatically handle any remaining keys in the payload and
-        // save them as post meta.
-    }
-
-    // No other methods are needed. The F12_Quick_Sync_Module_Base handles everything else.
-}
-</file>
-
-<file path="quick-sync-plugin/relations.php">
-<?php
-// relations.php  (v3.1 - Production Final)
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
-
-/**
- * Sets the parent for a child post using the parent's SKU.
- * This is a high-level function that encapsulates the entire process of
- * finding the parent, setting the relation context, and updating the link.
- * It will REPLACE any existing parent for the child in this relation.
- *
- * @param int   $child_id         The ID of the child post.
- * @param string $parent_sku      The SKU of the parent post to link.
- * @param array  $relation_config The configuration array from the module's map.
- * @return true|WP_Error
- */
-function f12_set_relation_parent_by_sku( int $child_id, string $parent_sku, array $relation_config ) {
-    
-    // 1. Find the parent post by its SKU.
-    $parent_post = f12_get_post_by_sku( $parent_sku, $relation_config['parent_cpt'], $relation_config['parent_sku_meta'] );
-
-    if ( ! $parent_post ) {
-        f12_sync_log("[JetEngine] FAILED: Parent post with SKU '{$parent_sku}' not found.");
-        return new WP_Error('parent_not_found', "Parent post with SKU '{$parent_sku}' not found.");
-    }
-    $parent_id = $parent_post->ID;
-
-    // 2. Get the relation object from JetEngine.
-    $rel_id = (int) $relation_config['relation_id'];
-    $rel = jet_engine()->relations->get_active_relations( $rel_id );
-
-    if ( ! $rel ) {
-        f12_sync_log("[JetEngine] FAILED: Relation object for ID '{$rel_id}' not found or is inactive.");
-        return new WP_Error('relation_not_found', "JetEngine Relation '{$rel_id}' not found.");
-    }
-
-    // 3. Set the context and update the relationship. This is the critical sequence.
-    $rel->set_update_context( 'child' );
-    $rel->update( $parent_id, $child_id );
-
-    f12_sync_log("[JetEngine] SUCCESS: Linked child ID {$child_id} to parent ID {$parent_id} for relation {$rel_id}.");
-
-    return true;
-}
-</file>
-
-<file path="quick-sync-scripts/package.json">
-{
-  "name": "f12-quick-sync",
-  "version": "1.0.0",
-  "description": "Airtable → WordPress Quick-Sync scripts",
-  "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Four12-Global/f12-quick-sync-project.git"
-  },
-  "scripts": {
-    "check": "tsc --noEmit",
-    "build": "esbuild src/*.ts --bundle --format=iife --target=es2017 --minify --outdir=dist",
-    "watch": "esbuild src/*.ts --bundle --format=iife --target=es2017 --outdir=dist --watch"
-  },
-  "devDependencies": {
-    "@types/node": "^20.11.0",
-    "esbuild": "^0.25.8",
-    "typescript": "^5.8.3"
-  }
-}
 </file>
 
 <file path="quick-sync-plugin/modules/sessions-sync.php">
