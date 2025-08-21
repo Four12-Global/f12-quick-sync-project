@@ -40,6 +40,8 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
+docs/
+  slug-script.ts
 quick-sync-plugin/
   modules/
     author-sync.php
@@ -62,6 +64,7 @@ quick-sync-scripts/
     author-sync.ts
     books-media.ts
     books-sync.ts
+    clear-cache.ts
     series-media.ts
     series-sync.ts
     sessions-media.ts
@@ -74,13 +77,307 @@ quick-sync-scripts/
   tsconfig.json
 .gitattributes
 .gitignore
-airtable-fields.md
 package.json
 README.md
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="docs/slug-script.ts">
+// Airtable Script for Unique Slug Generation (Series)
+// Tiered Fallback: 1. Computed Slug, 2. + Year, 3. + Numbered Suffix (2, 3, 4...), 4. + Record ID
+
+// --- Configuration ---
+const CONFIG = {
+    tableName: "Series",
+    titleField: "series_title",          // Source for the slug
+    computedSlugField: "computed_series_slug", // Formula: basic slug from titleField
+    finalSlugField: "series_slug",       // Script writes the unique slug here
+
+    // Optional: Secondary differentiator (e.g., a year)
+    secondaryDifferentiatorField: "series_year", // Field name for year, or null if not used
+    secondaryDifferentiatorLabel: "year",        // For logging if used
+
+    recordIdSuffixLength: 5,
+    maxNumberedSuffix: 10 // How high to count (e.g., -2, -3, ... -10) before Record ID
+};
+
+// --- Main Script ---
+async function main() {
+    console.log(`Script started for Series slug generation.`);
+
+    let inputConfig = input.config();
+    let recordId = inputConfig.recordId;
+
+    if (!recordId) {
+        console.error("Error: recordId was not provided.");
+        output.set("status", "Error: Missing recordId");
+        return;
+    }
+    console.log(`Processing record: ${recordId}`);
+
+    let table = base.getTable(CONFIG.tableName);
+
+    let fieldsToFetch = [
+        CONFIG.titleField,
+        CONFIG.computedSlugField,
+        CONFIG.finalSlugField
+    ];
+    if (CONFIG.secondaryDifferentiatorField) {
+        fieldsToFetch.push(CONFIG.secondaryDifferentiatorField);
+    }
+
+    let currentRecordQuery = await table.selectRecordsAsync({
+        recordIds: [recordId],
+        fields: fieldsToFetch
+    });
+
+    if (!currentRecordQuery || currentRecordQuery.records.length === 0) {
+        console.error(`Error: Could not find record with ID: ${recordId}`);
+        output.set("status", `Error: Record ${recordId} not found`);
+        return;
+    }
+
+    let record = currentRecordQuery.records[0];
+    let seriesTitle = record.getCellValue(CONFIG.titleField);
+    let computedSlug = record.getCellValue(CONFIG.computedSlugField); // Slug from formula
+    let secondaryDifferentiatorValue = CONFIG.secondaryDifferentiatorField ? record.getCellValue(CONFIG.secondaryDifferentiatorField) : null;
+
+    console.log(`Fetched seriesTitle: "${seriesTitle}"`);
+    console.log(`Fetched computedSlug (from formula): "${computedSlug}"`);
+    if (CONFIG.secondaryDifferentiatorField && secondaryDifferentiatorValue !== null) {
+        console.log(`Fetched ${CONFIG.secondaryDifferentiatorLabel}: "${secondaryDifferentiatorValue}"`);
+    }
+
+
+    if (!seriesTitle || !computedSlug) {
+        console.log("Series title or computed slug is empty. Clearing final slug if necessary.");
+        let fieldsToClear = {};
+        if (record.getCellValue(CONFIG.finalSlugField)) {
+            fieldsToClear[CONFIG.finalSlugField] = "";
+        }
+        if (Object.keys(fieldsToClear).length > 0) {
+            await table.updateRecordAsync(recordId, fieldsToClear);
+            output.set("status", "Title/computed slug empty; final slug cleared.");
+        } else {
+            output.set("status", "Title/computed slug empty; final slug already clear.");
+        }
+        output.set("finalSlugValue", "");
+        return;
+    }
+
+    // Helper to slugify strings (basic version, computedSlugField should be robust)
+    function slugify(text) {
+        if (!text) return "";
+        return String(text).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
+    }
+
+    // Fetch all existing final slugs from other records
+    let allOtherRecordsQuery = await table.selectRecordsAsync({ fields: [CONFIG.finalSlugField] });
+    let existingFinalSlugs = allOtherRecordsQuery.records
+        .filter(r => r.id !== recordId) // Exclude current record
+        .map(r => r.getCellValue(CONFIG.finalSlugField))
+        .filter(s => s); // Remove any empty/null slugs
+
+    let finalSlugToWrite = "";
+    let baseSlugForAttempts = computedSlug; // Start with the formula-generated slug
+
+    // 1. Try computedSlug directly
+    if (!existingFinalSlugs.includes(baseSlugForAttempts)) {
+        finalSlugToWrite = baseSlugForAttempts;
+        console.log(`Computed slug "${finalSlugToWrite}" is unique.`);
+    } else {
+        console.log(`Computed slug "${baseSlugForAttempts}" is a duplicate. Trying alternatives.`);
+
+        // 2. Try with Secondary Differentiator (e.g., Year)
+        if (CONFIG.secondaryDifferentiatorField && secondaryDifferentiatorValue !== null) {
+            let differentiatorSlug = slugify(String(secondaryDifferentiatorValue)); // Slugify the year/differentiator
+            if (differentiatorSlug) {
+                let candidateWithDifferentiator = `${baseSlugForAttempts}-${differentiatorSlug}`;
+                console.log(`Attempting with ${CONFIG.secondaryDifferentiatorLabel}: "${candidateWithDifferentiator}"`);
+                if (!existingFinalSlugs.includes(candidateWithDifferentiator)) {
+                    finalSlugToWrite = candidateWithDifferentiator;
+                    console.log(`Using slug with ${CONFIG.secondaryDifferentiatorLabel}: "${finalSlugToWrite}"`);
+                } else {
+                    console.log(`Slug with ${CONFIG.secondaryDifferentiatorLabel} "${candidateWithDifferentiator}" is also a duplicate.`);
+                    baseSlugForAttempts = candidateWithDifferentiator; // Use this as the new base for numbered suffix
+                }
+            }
+        }
+
+        // 3. Try with Numbered Suffix (e.g., -2, -3, ...) if still no unique slug
+        if (!finalSlugToWrite) {
+            console.log(`Proceeding to numbered suffix attempts. Base for numbering: "${baseSlugForAttempts}"`);
+            for (let i = 2; i <= CONFIG.maxNumberedSuffix; i++) {
+                let candidateWithNumber = `${baseSlugForAttempts}-${i}`;
+                console.log(`Attempting with numbered suffix: "${candidateWithNumber}"`);
+                if (!existingFinalSlugs.includes(candidateWithNumber)) {
+                    finalSlugToWrite = candidateWithNumber;
+                    console.log(`Using numbered suffix slug: "${finalSlugToWrite}"`);
+                    break; // Found a unique one
+                }
+            }
+            if (!finalSlugToWrite) {
+                console.log(`Numbered suffix attempts up to -${CONFIG.maxNumberedSuffix} failed.`);
+            }
+        }
+
+        // 4. Try with Record ID Suffix if still no unique slug
+        if (!finalSlugToWrite) {
+            console.log(`Proceeding to Record ID suffix attempts. Base for Record ID: "${baseSlugForAttempts}"`);
+            let recordIdSuffix = recordId.slice(-CONFIG.recordIdSuffixLength).toLowerCase();
+            let candidateWithRecordId = `${baseSlugForAttempts}-${recordIdSuffix}`;
+            console.log(`Attempting with Record ID suffix: "${candidateWithRecordId}"`);
+
+            if (!existingFinalSlugs.includes(candidateWithRecordId)) {
+                finalSlugToWrite = candidateWithRecordId;
+                console.log(`Using Record ID-suffixed slug: "${finalSlugToWrite}"`);
+            } else {
+                // Attempt with a slightly longer part of record ID or a random string as a deeper fallback
+                console.log(`Record ID-suffixed slug "${candidateWithRecordId}" is also a duplicate.`);
+                let alternativeSuffix = recordId.slice(-(CONFIG.recordIdSuffixLength + 2)).toLowerCase();
+                if (alternativeSuffix.length < CONFIG.recordIdSuffixLength) { // Ensure it's somewhat distinct
+                    alternativeSuffix = Math.random().toString(36).substring(2, 7); // Random 5 char
+                }
+                candidateWithRecordId = `${baseSlugForAttempts}-${alternativeSuffix}`;
+                if (!existingFinalSlugs.includes(candidateWithRecordId)) {
+                    finalSlugToWrite = candidateWithRecordId;
+                    console.log(`Using alternative Record ID/random-suffixed slug: "${finalSlugToWrite}"`);
+                } else {
+                     // Last resort: timestamp to ensure uniqueness
+                    finalSlugToWrite = `${baseSlugForAttempts}-${Date.now()}`;
+                    console.warn(`CRITICAL FALLBACK: All attempts failed. Using timestamp: "${finalSlugToWrite}"`);
+                }
+            }
+        }
+    }
+
+    // --- Prepare and perform updates ---
+    let fieldsToUpdate = {};
+    let statusMessage = "";
+    let currentFinalSlugInRecord = record.getCellValue(CONFIG.finalSlugField);
+
+    if (finalSlugToWrite) {
+        if (finalSlugToWrite !== currentFinalSlugInRecord) {
+            fieldsToUpdate[CONFIG.finalSlugField] = finalSlugToWrite;
+        }
+        output.set("finalSlugValue", finalSlugToWrite);
+        if (Object.keys(fieldsToUpdate).length > 0) {
+            statusMessage = "Slug to be updated.";
+        } else {
+            statusMessage = "Slug already correct.";
+        }
+    } else { // Should not happen if title/computedSlug exist due to fallbacks, but defensive
+        if (currentFinalSlugInRecord) {
+            fieldsToUpdate[CONFIG.finalSlugField] = ""; // Clear if it was somehow set
+        }
+        output.set("finalSlugValue", "");
+        if (Object.keys(fieldsToUpdate).length > 0) {
+            statusMessage = "Error in generation; slug to be cleared.";
+        } else {
+            statusMessage = "Error in generation; slug already clear.";
+        }
+        console.error("finalSlugToWrite was empty after all attempts. This should not happen if title exists.");
+    }
+    output.set("status", statusMessage);
+
+    if (Object.keys(fieldsToUpdate).length > 0) {
+        console.log(`Updating record ${recordId} with:`, fieldsToUpdate);
+        await table.updateRecordAsync(recordId, fieldsToUpdate);
+        console.log(`"${CONFIG.finalSlugField}" set to: "${fieldsToUpdate[CONFIG.finalSlugField]}"`);
+        if (statusMessage.includes("to be updated")) {
+            output.set("status", "Slug updated successfully.");
+        } else if (statusMessage.includes("to be cleared")) {
+            output.set("status", "Slug cleared successfully.");
+        }
+    } else {
+        console.log("No updates needed for slug.");
+    }
+}
+
+main();
+</file>
+
+<file path="quick-sync-scripts/src/clear-cache.ts">
+// src/clear-cache.ts
+
+import { buildBasicAuth } from './lib/sync-helpers';
+
+// Define the structure of our endpoints for type safety
+const ENDPOINTS = {
+    prod: 'https://four12global.com/wp-json/four12/v1/clear-cache',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/clear-cache'
+};
+
+// Define the SECRET_NAME
+const SECRET_NAME = 'API-SYNC';
+
+/**
+ * Main function to orchestrate the cache clearing process.
+ */
+async function main() {
+    // For Automations, input variables are configured in the UI.
+    // input.config() is called with no arguments to retrieve them.
+    const scriptInput = await input.config();
+    const env = scriptInput.env as keyof typeof ENDPOINTS;
+
+    if (!env || !ENDPOINTS[env]) {
+        // Use console.error for immediate feedback in the test log
+        console.error("Configuration Error! The 'env' input variable is missing or invalid. Please configure it in the Automation trigger/button settings.");
+        // Set output variables for the automation run history
+        output.set('status', 'Configuration Error');
+        output.set('details', "The 'env' input variable is missing or invalid.");
+        return;
+    }
+    
+    const wpUrl = ENDPOINTS[env];
+    const statusMessage = `Attempting to clear cache on ${env.toUpperCase()} environment...`;
+    
+    console.log(statusMessage);
+    output.set('status', 'In Progress');
+    output.set('details', statusMessage);
+
+    try {
+        // 1. Get authentication credentials
+        const authSecret = await input.secret(SECRET_NAME);
+        const authB64 = buildBasicAuth(authSecret, SECRET_NAME);
+
+        // 2. Make the API call
+        const response = await fetch(wpUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Basic ${authB64}`,
+            },
+            body: JSON.stringify({}),
+        });
+
+        const responseJson = await response.json();
+
+        // 3. Handle the response, using output.set()
+        if (response.ok && responseJson.success) {
+            console.log('✅ Success!', responseJson.message);
+            output.set('status', 'Success');
+            output.set('details', responseJson.message);
+        } else {
+            const errorMessage = responseJson.message || `HTTP Error ${response.status}`;
+            console.error('❌ Error!', errorMessage);
+            output.set('status', 'Error');
+            output.set('details', errorMessage);
+        }
+
+    } catch (err) {
+        const error = err as Error;
+        console.error('❌ Critical Error!', error.message);
+        output.set('status', 'Critical Error');
+        output.set('details', error.message);
+    }
+}
+
+// Run the main function
+main();
+</file>
 
 <file path="quick-sync-plugin/modules/author-sync.php">
 <?php
@@ -563,94 +860,6 @@ const booksMediaConfig: MediaSyncConfig = {
 mediaSync(booksMediaConfig, scriptInput);
 </file>
 
-<file path="quick-sync-scripts/src/books-sync.ts">
-// src/books-sync.ts
-
-import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
-
-// The single, valid call to input.config() for the entire script run.
-const scriptInput = input.config();
-
-// The FIELD_MAP is the heart of the configuration.
-// It maps the 'Airtable Field Name' to the 'WordPress Payload Key'.
-const FIELD_MAP: FieldMap = {
-  /* --- Core WordPress Fields --- */
-  'title': 'post_title',
-  'slug': 'post_name',
-  'content': 'post_content',
-  'excerpt': 'post_excerpt',
-  'status': 'post_status',
-  'post_date': 'post_date',
-
-  /* --- SKU (Essential for de-duplication) --- */
-  'sku': 'sku',
-
-  /* --- SEO & Permalinks --- */
-  '_aioseo_description': '_aioseo_description',
-  'permalink': 'custom_permalink_uri', // For Permalink Manager plugin
-
-  /* --- Taxonomies --- */
-  'global_categories': 'global-categories',
-  'author': 'author', // Maps to 'author' taxonomy
-  'topics': 'topics',
-
-  /* --- Media Fields (using the IDs from the media script) --- */
-  'featured_image': {
-    airtableIdField:   'featured_image_wp_id',
-    airtableLinkField: 'featured_image_link',
-    wpKey: '_thumbnail_id', // Special WP key for the featured image
-  },
-  'pdf_image_1': {
-    airtableIdField:   'pdf_image_1_wp_id',
-    airtableLinkField: 'pdf_image_1_link',
-    wpKey: 'pdf-image-1', // A custom meta field for the PDF's image
-  },
-
-  /* --- Custom Meta Fields (Links & Content) --- */
-  'tag-line': 'tag-line',
-  'link_five - Print PDF Link': 'link_five',
-  'link_twelve - Hardcopy Link': 'link_twelve',
-  'link_six - Web PDF Link': 'link_six',
-  'link_eight - Kindle PDF Link': 'link_eight',
-  'link_thirteen - Order Here': 'link_thirteen',
-  'custom-pdf-title-1': 'custom-pdf-title-1',
-  'link_ten - Custom PDF Link 1': 'link_ten',
-
-  /* --- Version 1 Content (as custom meta) --- */
-  'version-1-title': 'version-1-title',
-  'version-1-tag-line': 'version-1-tag-line',
-  'version-1-content': 'version-1-content',
-  'version-1-footer': 'version-1-footer',
-
-  /* --- Timestamps (for bookkeeping) --- */
-  'last_synced': 'last_synced',
-  'publish_timestamp': 'last_published',
-};
-
-const booksSyncConfig: QuickSyncConfig = {
-  // The name of your Airtable table
-  airtableTable: 'Books',
-
-  // The Airtable fields holding the unique ID and title
-  skuField: 'sku',
-  titleField: 'title',
-
-  // The field map defined above
-  fieldMap: FIELD_MAP,
-
-  // The WordPress endpoints for this CPT
-  // NOTE: You will need to create a 'books-sync.php' module in your WP plugin
-  // to create this endpoint.
-  envEndpoints: {
-    prod:    'https://four12global.com/wp-json/four12/v1/books-sync',
-    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/books-sync',
-  },
-};
-
-// This one line runs the entire data sync process.
-quickSync(booksSyncConfig, scriptInput);
-</file>
-
 <file path="quick-sync-scripts/src/sessions-media.ts">
 // src/sessions-media.ts
 
@@ -820,210 +1029,6 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
-</file>
-
-<file path="airtable-fields.md">
-# Airtable Resources Base - Common Fields Analysis
-
-## Overview
-This document analyzes the common fields across all tables in the Resources Base to identify standard fields that should be included when creating new tables. These fields are not content-specific but rather provide consistent structure, tracking, and functionality across all resources.
-
-## Base Information
-- **Base Name**: Resources Base
-- **Base ID**: `apphmPNiTdmcknmfs`
-- **Total Tables**: 15
-
-## Tables Analyzed
-1. Series
-2. Sessions
-3. Articles
-4. News
-5. Series_2
-6. Sessions_2
-7. author-speaker
-8. Topics
-9. Leaders
-10. Worship
-11. Books
-12. Ministry
-13. subsplash_resource_lists
-14. subsplash_list_rows
-15. series_type
-
-## Standard Fields for New Tables
-
-### 1. Core Identification Fields
-These fields provide unique identification and basic metadata for each record:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `auto_number` | AutoNumber | Auto-incrementing unique identifier | 1, 2, 3... | N/A |
-| `sku` | Formula | Unique SKU code (usually based on auto_number) | "S0001", "R0001", "A0001" | `sku` |
-| `id` | Number | WordPress ID or external system ID | 12345 | N/A |
-| `title` / `name` | SingleLineText/MultilineText | Primary title/name of the resource | "Series Title" | `post_title` |
-
-### 2. URL and Permalink Fields
-These fields handle web routing and SEO:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `slug` | Formula/SingleLineText | URL-friendly version of title | "series-title" | `post_name` |
-| `permalink` | URL/Formula | Full URL path | "/resources/series/series-title" | `custom_permalink_uri` |
-
-### 3. Content Management Fields
-These fields handle content status and workflow:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `website_status` | SingleSelect | Publication status | "publish", "draft", "private" | `post_status` |
-| `excerpt` | MultilineText | Short description/summary | "Brief description..." | `post_excerpt` |
-| `content` / `description` | MultilineText | Main content body | "Full content..." | Custom meta |
-| `content_admin` | RichText | Admin-only content | "Internal notes..." | Custom meta |
-
-### 4. Timestamp Tracking Fields
-These fields provide comprehensive tracking of when content was created, modified, and published:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `last_modified` | LastModifiedTime | When any field was last changed | Auto-generated | N/A |
-| `media_last_modified` | LastModifiedTime | When media fields were last changed | Auto-generated | N/A |
-| `admin_last_modified` | LastModifiedTime | When admin fields were last changed | Auto-generated | N/A |
-| `publish_timestamp` | DateTime | When content was published | 2024-01-15 10:00:00 | `last_published` |
-| `media_publish_timestamp` | DateTime | When media was published | 2024-01-15 10:00:00 | N/A |
-| `admin_publish_timestamp` | DateTime | When admin content was published | 2024-01-15 10:00:00 | N/A |
-
-### 5. Status and Workflow Fields
-These fields provide status indicators and workflow management:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `update_status` | Formula | Human-readable update status | "⚡ Just Updated", "🚀 Updated Today" | N/A |
-| `publish_status` | Formula | Publication readiness status | "✅ Ready", "🎯 Needs Publish" | N/A |
-| `sync_status` | SingleSelect | External system sync status | "Success", "Processing", "Failed" | N/A |
-| `import_status` | SingleLineText | Import process status | "Completed", "Pending" | N/A |
-
-### 6. Media Management Fields
-These fields handle images and media assets. **Note: Use the `_wp_id` variant for WordPress sync:**
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `featured_image_wp_id` | Number | WordPress media ID (preferred) | 12345 | `_thumbnail_id` |
-| `featured_image_link` | URL | Featured image URL (fallback) | "https://example.com/image.jpg" | Custom meta |
-| `featured_image_attachment` | MultipleAttachments | Featured image file | Image file | N/A |
-| `featured_image_external` | SingleLineText | External image reference | "external_image_id" | N/A |
-| `listing_image_wp_id` | Number | WordPress media ID for listing | 12346 | `listing-image` |
-| `listing_image_link` | URL | Listing image URL | "https://example.com/listing.jpg" | Custom meta |
-| `banner_image_wp_id` | Number | WordPress media ID for banner | 12347 | `banner-image` |
-| `banner_image_link` | URL | Banner image URL | "https://example.com/banner.jpg" | Custom meta |
-| `no_words_image_wp_id` | Number | WordPress media ID (no text) | 12348 | `no-words-image` |
-| `no_words_image_link` | URL | No-text image URL | "https://example.com/nowords.jpg" | Custom meta |
-
-### 7. Category and Classification Fields
-These fields provide content organization and navigation:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `category_helper` | SingleLineText | Raw category string | "Resources>Series>Youth" | N/A |
-| `category` | SingleLineText | Processed category | "Youth" | Custom taxonomy |
-| `category_1`, `category_2`, etc. | Formula | Individual category levels | "Resources", "Series" | N/A |
-| `global_categories` | Formula | Full category hierarchy | "Resources > Series > Youth" | `global-categories` |
-| `series_category` | SingleSelect | Predefined category options | "Featured Messages" | `series-categories` |
-
-### 8. Relationship Fields
-These fields connect content to other resources:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `series` | MultipleRecordLinks | Related series | Links to Series table | `jet_relation_series_parent` |
-| `series_sku` | MultipleLookupValues | Series SKU from relationship | "S0001" | `jet_relation_series_parent` |
-| `sessions` | MultipleRecordLinks | Related sessions | Links to Sessions table | Custom meta |
-| `topics` | MultipleRecordLinks | Related topics | Links to Topics table | `topics` |
-| `author` / `speaker` | MultipleRecordLinks | Content creators | Links to author-speaker table | `author-speaker` |
-
-### 9. External Integration Fields
-These fields handle connections to external systems:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `wp_id` | Number | WordPress ID | 12345 | N/A |
-| `subsplash_*` | Various | Subsplash platform fields | Various Subsplash-specific fields | Custom meta |
-
-### 10. SEO and Metadata Fields
-These fields handle search engine optimization:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `seo_description` | Formula/MultilineText | SEO meta description | "SEO description..." | Custom meta |
-| `_aioseo_description` | MultilineText | All in One SEO description | "AIOSEO description..." | `_aioseo_description` |
-| `aioseo_description` | SingleLineText | Alternative SEO description | "Alternative SEO..." | Custom meta |
-
-### 11. Additional Content Fields
-These fields provide extra content and functionality:
-
-| Field Name | Field Type | Description | Example | WordPress Mapping |
-|------------|------------|-------------|---------|-------------------|
-| `pdf_title_1` | SingleSelect | PDF document title | "Worksheet", "Discussion Pages" | `custom-pdf-title-1` |
-| `pdf_link_1` | SingleLineText | PDF document link | "https://example.com/doc.pdf" | `link_ten` |
-| `youtube_link` | URL | YouTube video link | "https://youtube.com/watch?v=..." | `link_one` |
-| `spotify_podcast` | URL | Spotify podcast link | "https://open.spotify.com/..." | `spotify-podcast-link` |
-| `apple_podcast` | URL | Apple Podcasts link | "https://podcasts.apple.com/..." | `apple-podcast-link` |
-
-## Recommended Field Order for New Tables
-
-When creating a new table, consider this field order:
-
-1. **Core Identification** (auto_number, sku, id, title)
-2. **Content** (excerpt, content, content_admin)
-3. **URLs** (slug, permalink)
-4. **Categories** (category_helper, category, global_categories)
-5. **Media** (featured_image_wp_id, listing_image_wp_id, banner_image_wp_id, no_words_image_wp_id)
-6. **Relationships** (series, sessions, topics, author)
-7. **Timestamps** (last_modified, media_last_modified, admin_last_modified)
-8. **Publishing** (publish_timestamp, media_publish_timestamp, admin_publish_timestamp, api_publish_timestamp)
-9. **Status** (website_status, update_status, publish_status, sync_status)
-10. **External IDs** (wp_id, subsplash_*)
-11. **SEO** (seo_description, _aioseo_description)
-12. **Additional Content** (pdf_*, youtube_link, spotify_podcast, apple_podcast)
-
-## Field Type Recommendations
-
-- Use **Formula** fields for computed values (SKUs, status indicators, derived fields)
-- Use **LastModifiedTime** for automatic timestamp tracking
-- Use **MultipleAttachments** for file uploads
-- Use **MultipleRecordLinks** for relationships to other tables
-- Use **SingleSelect** for predefined options (status, categories)
-- Use **DateTime** for manual timestamp entry
-- Use **URL** for external links
-- Use **RichText** for admin content that needs formatting
-- Use **Number** for WordPress media IDs and external IDs
-
-## WordPress Integration Notes
-
-### **Media Field Pattern:**
-Always create both the `_wp_id` and `_link` variants for media fields:
-- `featured_image_wp_id` (Number) → WordPress `_thumbnail_id`
-- `featured_image_link` (URL) → Fallback/cache field
-
-### **Taxonomy Mapping:**
-- `global_categories` → WordPress `global-categories` taxonomy
-- `topics` → WordPress `topics` taxonomy
-- `author-speaker` → WordPress `author-speaker` taxonomy
-
-### **Custom Meta Fields:**
-- Use descriptive names that match WordPress meta keys
-- Consider using the `link_*` pattern for external resources
-- Use `custom-*` prefix for custom content fields
-
-## Notes
-
-- **SKU Pattern**: Most tables use a letter prefix + 4-digit number (S0001, R0001, A0001, etc.)
-- **Timestamp Consistency**: All tables use the same timestamp field structure for consistency
-- **Media Handling**: Standardized approach with wp_id fields for WordPress sync, link fields for fallbacks
-- **Category Structure**: Hierarchical category system with helper fields and derived category levels
-- **Status Workflow**: Consistent status tracking across all content types
-- **WordPress Sync**: Fields are designed to map directly to WordPress post types and taxonomies
-
-This analysis provides a foundation for maintaining consistency when creating new tables in the Resources Base while ensuring all necessary functionality is preserved and proper WordPress integration is maintained.
 </file>
 
 <file path="package.json">
@@ -1241,7 +1246,7 @@ class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
 
         // Markdown mapping configuration
         $this->markdown_map = [
-            'series_description' => ['post_content', 'series_description']
+            'series-description' => ['post_content', 'series-description']
         ];
     }
 
@@ -1547,6 +1552,94 @@ const scriptInput = input.config();
 mediaSync(authorMediaConfig, scriptInput);
 </file>
 
+<file path="quick-sync-scripts/src/books-sync.ts">
+// src/books-sync.ts
+
+import { quickSync, QuickSyncConfig, FieldMap } from './lib/sync-helpers';
+
+// The single, valid call to input.config() for the entire script run.
+const scriptInput = input.config();
+
+// The FIELD_MAP is the heart of the configuration.
+// It maps the 'Airtable Field Name' to the 'WordPress Payload Key'.
+const FIELD_MAP: FieldMap = {
+  /* --- Core WordPress Fields --- */
+  'title': 'post_title',
+  'slug': 'post_name',
+  'content': 'post_content',
+  'excerpt': 'post_excerpt',
+  'status': 'post_status',
+  'post_date': 'post_date',
+
+  /* --- SKU (Essential for de-duplication) --- */
+  'sku': 'sku',
+
+  /* --- SEO & Permalinks --- */
+  '_aioseo_description': '_aioseo_description',
+  'permalink': 'custom_permalink_uri', // For Permalink Manager plugin
+
+  /* --- Taxonomies --- */
+  'global_categories': 'global-categories',
+  'author': 'author', // Maps to 'author' taxonomy
+  'topics': 'topics',
+
+  /* --- Media Fields (using the IDs from the media script) --- */
+  'featured_image': {
+    airtableIdField:   'featured_image_wp_id',
+    airtableLinkField: 'featured_image_link',
+    wpKey: '_thumbnail_id', // Special WP key for the featured image
+  },
+  'pdf_image_1': {
+    airtableIdField:   'pdf_image_1_wp_id',
+    airtableLinkField: 'pdf_image_1_link',
+    wpKey: 'pdf-image-1', // A custom meta field for the PDF's image
+  },
+
+  /* --- Custom Meta Fields (Links & Content) --- */
+  'tag-line': 'tag-line',
+  'link_five - Print PDF Link': 'link_five',
+  'link_twelve - Hardcopy Link': 'link_twelve',
+  'link_six - Web PDF Link': 'link_six',
+  'link_eight - Kindle PDF Link': 'link_eight',
+  'link_thirteen - Order Here': 'link_thirteen',
+  'custom-pdf-title-1': 'custom-pdf-title-1',
+  'link_ten - Custom PDF Link 1': 'link_ten',
+
+  /* --- Version 1 Content (as custom meta) --- */
+  'version-1-title': 'version-1-title',
+  'version-1-tag-line': 'version-1-tag-line',
+  'version-1-content': 'version-1-content',
+  'version-1-footer': 'version-1-footer',
+
+  /* --- Timestamps (for bookkeeping) --- */
+  'last_synced': 'last_synced',
+  'publish_timestamp': 'last_published',
+};
+
+const booksSyncConfig: QuickSyncConfig = {
+  // The name of your Airtable table
+  airtableTable: 'Books',
+
+  // The Airtable fields holding the unique ID and title
+  skuField: 'sku',
+  titleField: 'title',
+
+  // The field map defined above
+  fieldMap: FIELD_MAP,
+
+  // The WordPress endpoints for this CPT
+  // NOTE: You will need to create a 'books-sync.php' module in your WP plugin
+  // to create this endpoint.
+  envEndpoints: {
+    prod:    'https://four12global.com/wp-json/four12/v1/books-sync',
+    staging: 'https://wordpress-1204105-5660147.cloudwaysapps.com/wp-json/four12/v1/books-sync',
+  },
+};
+
+// This one line runs the entire data sync process.
+quickSync(booksSyncConfig, scriptInput);
+</file>
+
 <file path="quick-sync-scripts/src/series-media.ts">
 // src/series-media.ts
 
@@ -1619,7 +1712,7 @@ import { quickSync } from './lib/sync-helpers';
 const FIELD_MAP = {
   /* ── Core WP fields ───────────────────────────── */
   series_title:      'post_title',
-  series_slug:       'post_name',
+  slug:              'post_name',
   long_date:         'post_date',
   website_status:    'post_status',
   series_sku:        'sku',
@@ -2827,6 +2920,61 @@ final class F12_Quick_Sync_Manager {
         }
     }
 
+
+
+	/**
+	 * Handles the REST API request to clear the Breeze cache.
+	 * This definitive version uses WP-CLI for maximum reliability,
+	 * inspired by the proven method in the legacy sync dashboard plugin.
+	 */
+	public function handle_clear_cache_request( WP_REST_Request $request ) {
+		// First, check if the server environment allows command execution.
+		if ( ! function_exists( 'exec' ) ) {
+			$error_msg = 'Server configuration error: exec() function is disabled, which is required for WP-CLI cache clearing.';
+			f12_sync_log( $error_msg );
+			return new WP_Error( 'f12_exec_disabled', $error_msg, [ 'status' => 501 ] ); // 501 Not Implemented
+		}
+
+		// Assume 'wp' is in the system's PATH. This is standard.
+		// We add the --path flag to ensure WP-CLI operates on the correct WordPress installation.
+		$command = 'wp breeze purge --cache=all --path=' . escapeshellarg( ABSPATH );
+		
+		$output = [];
+		$return_code = -1;
+
+		// Execute the command, capturing all output (stdout & stderr)
+		@exec( $command . ' 2>&1', $output, $return_code );
+		
+		$output_string = implode( "\n", $output );
+
+		// Log the result for debugging purposes.
+		f12_sync_log( "Cache Clear Command Executed: `{$command}` | Return Code: {$return_code} | Output: {$output_string}" );
+
+		// A return code of 0 and the word "success" in the output is a reliable indicator of success.
+		if ( $return_code === 0 && strpos( strtolower( $output_string ), 'success' ) !== false ) {
+			return rest_ensure_response( [
+				'success' => true,
+				'message' => 'Breeze cache cleared successfully via WP-CLI.',
+				'data'    => [ 'output' => $output_string ]
+			] );
+		} else {
+			// If it failed, return a server error with the CLI output for debugging.
+			$error_message = 'Failed to clear Breeze cache using WP-CLI.';
+			if ( $return_code !== 0 ) {
+				$error_message .= " (Exit Code: {$return_code})";
+			}
+			return new WP_Error(
+				'f12_cli_cache_clear_failed',
+				$error_message,
+				[
+					'status' => 500,
+					'data'   => [ 'output' => $output_string ]
+				]
+			);
+		}
+	}
+
+
     /**
      * Register REST API routes for each loaded module.
      */
@@ -2848,8 +2996,28 @@ final class F12_Quick_Sync_Manager {
             );
              f12_sync_log( 'Registered endpoint: /four12/v1/' . $module->get_endpoint_slug() );
         }
+
+
+		// Register the cache clearing endpoint
+		register_rest_route(
+			'four12/v1',
+			'/clear-cache',
+			[
+				'methods'             => WP_REST_Server::CREATABLE, // 'POST'
+				'callback'            => [ $this, 'handle_clear_cache_request' ],
+				'permission_callback' => 'f12_quick_sync_permission_check',
+				'args'                => [],
+			]
+		);
+		f12_sync_log( 'Registered endpoint: /four12/v1/clear-cache' );
+
+
     }
+
 }
+
+
+//----------
 
 // Initialize the plugin manager.
 F12_Quick_Sync_Manager::get_instance();
@@ -3738,9 +3906,10 @@ import { quickSync } from './lib/sync-helpers';
 const FIELD_MAP = {
   /* ── Core WP fields ───────────────────────────── */
   session_title:       'post_title',
-  session_slug:        'post_name',
+  slug:        'post_name',
   session_description_admin: 'session_description_admin',
   excerpt:             'post_excerpt',
+  date_long:           'post_date',
 
   /* Custom permalink (Permalink Manager / AIOSEO) */
   session_permalink:   'custom_permalink_uri',

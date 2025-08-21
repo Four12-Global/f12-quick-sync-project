@@ -3,9 +3,10 @@ import { quickSync } from './lib/sync-helpers';
 const FIELD_MAP = {
   /* ── Core WP fields ───────────────────────────── */
   session_title:       'post_title',
-  session_slug:        'post_name',
+  slug:        'post_name',
   session_description_admin: 'session_description_admin',
   excerpt:             'post_excerpt',
+  date_long:           'post_date',
 
   /* Custom permalink (Permalink Manager / AIOSEO) */
   session_permalink:   'custom_permalink_uri',

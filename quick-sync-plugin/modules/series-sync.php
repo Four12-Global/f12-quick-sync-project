@@ -48,7 +48,7 @@ class F12_Series_Sync_Module extends F12_Quick_Sync_Module_Base {
 
         // Markdown mapping configuration
         $this->markdown_map = [
-            'series_description' => ['post_content', 'series_description']
+            'series-description' => ['post_content', 'series-description']
         ];
     }
 

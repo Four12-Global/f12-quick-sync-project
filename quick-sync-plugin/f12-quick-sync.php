@@ -74,6 +74,61 @@ final class F12_Quick_Sync_Manager {
         }
     }
 
+
+
+	/**
+	 * Handles the REST API request to clear the Breeze cache.
+	 * This definitive version uses WP-CLI for maximum reliability,
+	 * inspired by the proven method in the legacy sync dashboard plugin.
+	 */
+	public function handle_clear_cache_request( WP_REST_Request $request ) {
+		// First, check if the server environment allows command execution.
+		if ( ! function_exists( 'exec' ) ) {
+			$error_msg = 'Server configuration error: exec() function is disabled, which is required for WP-CLI cache clearing.';
+			f12_sync_log( $error_msg );
+			return new WP_Error( 'f12_exec_disabled', $error_msg, [ 'status' => 501 ] ); // 501 Not Implemented
+		}
+
+		// Assume 'wp' is in the system's PATH. This is standard.
+		// We add the --path flag to ensure WP-CLI operates on the correct WordPress installation.
+		$command = 'wp breeze purge --cache=all --path=' . escapeshellarg( ABSPATH );
+		
+		$output = [];
+		$return_code = -1;
+
+		// Execute the command, capturing all output (stdout & stderr)
+		@exec( $command . ' 2>&1', $output, $return_code );
+		
+		$output_string = implode( "\n", $output );
+
+		// Log the result for debugging purposes.
+		f12_sync_log( "Cache Clear Command Executed: `{$command}` | Return Code: {$return_code} | Output: {$output_string}" );
+
+		// A return code of 0 and the word "success" in the output is a reliable indicator of success.
+		if ( $return_code === 0 && strpos( strtolower( $output_string ), 'success' ) !== false ) {
+			return rest_ensure_response( [
+				'success' => true,
+				'message' => 'Breeze cache cleared successfully via WP-CLI.',
+				'data'    => [ 'output' => $output_string ]
+			] );
+		} else {
+			// If it failed, return a server error with the CLI output for debugging.
+			$error_message = 'Failed to clear Breeze cache using WP-CLI.';
+			if ( $return_code !== 0 ) {
+				$error_message .= " (Exit Code: {$return_code})";
+			}
+			return new WP_Error(
+				'f12_cli_cache_clear_failed',
+				$error_message,
+				[
+					'status' => 500,
+					'data'   => [ 'output' => $output_string ]
+				]
+			);
+		}
+	}
+
+
     /**
      * Register REST API routes for each loaded module.
      */
@@ -95,8 +150,28 @@ final class F12_Quick_Sync_Manager {
             );
              f12_sync_log( 'Registered endpoint: /four12/v1/' . $module->get_endpoint_slug() );
         }
+
+
+		// Register the cache clearing endpoint
+		register_rest_route(
+			'four12/v1',
+			'/clear-cache',
+			[
+				'methods'             => WP_REST_Server::CREATABLE, // 'POST'
+				'callback'            => [ $this, 'handle_clear_cache_request' ],
+				'permission_callback' => 'f12_quick_sync_permission_check',
+				'args'                => [],
+			]
+		);
+		f12_sync_log( 'Registered endpoint: /four12/v1/clear-cache' );
+
+
     }
+
 }
+
+
+//----------
 
 // Initialize the plugin manager.
 F12_Quick_Sync_Manager::get_instance();

@@ -3,7 +3,7 @@ import { quickSync } from './lib/sync-helpers';
 const FIELD_MAP = {
   /* ── Core WP fields ───────────────────────────── */
   series_title:      'post_title',
-  series_slug:       'post_name',
+  slug:              'post_name',
   long_date:         'post_date',
   website_status:    'post_status',
   series_sku:        'sku',
